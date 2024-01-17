@@ -101,7 +101,7 @@ testY_actual = np.array(testY_actual).flatten()
 future_df = pd.DataFrame({'testY_actual': testY_actual, 'test_predict': test_predict})
 future_df.to_excel("优化data.xlsx", index=False)
 
-# 您可以计算整个测试集的平均相对误差
+# 计算整个测试集的平均相对误差
 error = np.abs(testY_actual - test_predict)
 average_error = np.mean(error)
 relative_errors = np.abs((testY_actual - test_predict) / testY_actual) * 100
