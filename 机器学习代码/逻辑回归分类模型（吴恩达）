@@ -1,0 +1,255 @@
+import copy
+import math
+import numpy as np
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+import matplotlib.colors as colors
+from matplotlib import cm
+import pandas as pd
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+
+# 读取xlsx文件
+df = pd.read_excel('try.xlsx', engine='openpyxl')
+print(df)
+X_train = df[['x', 'x2']].values
+y_train = df['z'].values
+w_tmp = np.zeros_like(X_train[0])
+b_tmp = 0.
+alph = 0.1
+iters = 10000
+lambda_value = 1
+
+dlc = dict(dlblue = '#0096ff', dlorange = '#FF9300', dldarkred='#C00000', dlmagenta='#FF40FF', dlpurple='#7030A0')
+dlblue = '#0096ff'; dlorange = '#FF9300'; dldarkred='#C00000'; dlmagenta='#FF40FF'; dlpurple='#7030A0'
+
+def plot_data(X, y, ax, pos_label="y=1", neg_label="y=0", s=80, loc='best' ):
+    pos = y == 1
+    neg = y == 0
+    pos = pos.reshape(-1,)
+    neg = neg.reshape(-1,)
+
+    # Plot examples
+    ax.scatter(X[pos, 0], X[pos, 1], marker='x', s=s, c = 'red', label=pos_label)
+    ax.scatter(X[neg, 0], X[neg, 1], marker='o', s=s, label=neg_label, facecolors='none', edgecolors=dlblue, lw=1)
+    ax.legend(loc=loc)
+
+    ax.figure.canvas.toolbar_visible = False
+    ax.figure.canvas.header_visible = False
+    ax.figure.canvas.footer_visible = False
+
+def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
+    new_cmap = colors.LinearSegmentedColormap.from_list(
+        'trunc({n},{a:.2f},{b:.2f})'.format(n=cmap.name, a=minval, b=maxval),
+        cmap(np.linspace(minval, maxval, n)))
+    return new_cmap
+
+def plt_prob(ax, w_out,b_out):
+    x0_space  = np.linspace(0, 100, 300)
+    x1_space  = np.linspace(0, 100, 300)
+
+    tmp_x0,tmp_x1 = np.meshgrid(x0_space,x1_space)
+    z = np.zeros_like(tmp_x0)
+    for i in range(tmp_x0.shape[0]):
+        for j in range(tmp_x1.shape[1]):
+            z[i,j] = sigmoid(np.dot(w_out, np.array([tmp_x0[i,j],tmp_x1[i,j]])) + b_out)
+
+
+    cmap = plt.get_cmap('Blues')
+    new_cmap = truncate_colormap(cmap, 0.0, 0.5)
+    pcm = ax.pcolormesh(tmp_x0, tmp_x1, z,
+                   norm=cm.colors.Normalize(vmin=0, vmax=1),
+                   cmap=new_cmap, shading='nearest', alpha = 0.9)
+    ax.figure.colorbar(pcm, ax=ax)
+
+def compute_cost_logistic(X, y, w, b, lambda_value):
+    m, n = X.shape
+    cost = 0.
+    for i in range(m):
+        z_i = np.dot(X[i], w) + b  # (n,)(n,)=scalar, see np.dot
+        f_wb_i = sigmoid(z_i)  # scalar
+        cost += -y[i] * np.log(f_wb_i) - (1 - y[i]) * np.log(1 - f_wb_i)  # scalar
+
+    cost = cost / m  # scalar
+
+    reg_cost = 0
+    for j in range(n):
+        reg_cost += (w[j] ** 2)  # scalar
+    reg_cost = (lambda_value / (2 * m)) * reg_cost  # scalar
+
+    total_cost = cost + reg_cost  # scalar
+    return total_cost
+
+def sigmoid(z):
+    z = np.clip( z, -500, 500 )           # protect against overflow
+    g = 1.0/(1.0+np.exp(-z))
+
+    return g
+
+def compute_gradient_logistic(X, y, w, b, lambda_value):
+    m, n = X.shape
+    dj_dw = np.zeros((n,))  # (n,)
+    dj_db = 0.
+
+    for i in range(m):
+        f_wb_i = sigmoid(np.dot(X[i], w) + b)  # (n,)(n,)=scalar
+        err_i = f_wb_i - y[i]  # scalar
+        for j in range(n):
+            dj_dw[j] = dj_dw[j] + err_i * X[i, j]  # scalar
+        dj_db = dj_db + err_i
+    dj_dw = dj_dw / m  # (n,)
+    dj_db = dj_db / m  # scalar
+
+    for j in range(n):
+        dj_dw[j] = dj_dw[j] + (lambda_value / m) * w[j]
+
+    return dj_db, dj_dw
+
+
+def gradient_descent(X, y, w_in, b_in, alpha, num_iters, lambda_value):
+    J_history = []
+    w = copy.deepcopy(w_in)
+    b = b_in
+
+    for i in range(num_iters):
+        # Calculate the gradient and update the parameters
+        dj_db, dj_dw = compute_gradient_logistic(X, y, w, b, lambda_value)
+
+        # Update Parameters using w, b, alpha and gradient
+        w = w - alpha * dj_dw
+        b = b - alpha * dj_db
+
+        # Save cost J at each iteration
+        if i < 100000:  # prevent resource exhaustion
+            J_history.append(compute_cost_logistic(X, y, w, b, lambda_value))
+
+        # Print cost every at intervals 10 times or as many iterations if < 10
+        if i % math.ceil(num_iters / 10) == 0:
+            print(f"Iteration {i:4d}: Cost {J_history[-1]}   ")
+
+    return w, b, J_history  # return final w,b and J history for graphing
+
+w_out, b_out, j_hist = gradient_descent(X_train, y_train, w_tmp, b_tmp, alph, iters, lambda_value)
+
+print(f"\nupdated parameters: w:{w_out}, b:{b_out}")
+
+# 绘制成本历史
+plt.plot(j_hist)
+plt.xlabel('iterations')
+plt.ylabel('cost')
+plt.title('cost_history')
+
+# 显示图表
+plt.show()
+
+fig, ax = plt.subplots(1, 1, figsize=(5, 4))
+# plot the probability
+plt_prob(ax, w_out, b_out)
+
+# Plot the original data
+ax.set_ylabel(r'$x_1$')
+ax.set_xlabel(r'$x_0$')
+ax.axis([0, 16, 0, 10])
+plot_data(X_train, y_train, ax)
+
+# Plot the decision boundary
+# Plot the decision boundary
+x0_vals = np.array([np.min(X_train[:, 0]), np.max(X_train[:, 0])])
+x1_vals = -(b_out + w_out[0] * x0_vals) / w_out[1]
+ax.plot(x0_vals, x1_vals, c=dlc["dlblue"], lw=3)
+
+plt.show()
+
+
+# 分类
+def classify_new_data(new_data, w, b):
+    # Compute the scores (z) for the new data
+    z = np.dot(new_data, w) + b
+
+    # Apply the sigmoid function to get probabilities
+    probabilities = sigmoid(z)
+
+    # Classify as 1 if probability > 0.5, else 0
+    return (probabilities > 0.5).astype(int)
+
+y_pred = classify_new_data(X_train, w_out, b_out)
+
+# 计算指标
+accuracy = accuracy_score(y_train, y_pred)
+precision = precision_score(y_train, y_pred)
+recall = recall_score(y_train, y_pred)
+f1 = f1_score(y_train, y_pred)
+# 若为二分类问题，还可以计算 AUC
+# auc = roc_auc_score(y_true, y_pred)
+
+# 生成混淆矩阵
+conf_matrix = confusion_matrix(y_train, y_pred)
+
+print("准确度Accuracy:", accuracy)
+print("精确度Precision:", precision)
+print("召回率Recall:", recall)
+print("精确度和召回率的调和平均值F1 Score:", f1)
+print("混淆矩阵Confusion Matrix:\n", conf_matrix)
+
+
+# 示例新数据
+new_data = np.array([[50, 20], [10, 80]])
+
+# 使用模型进行分类
+predicted_classes = classify_new_data(new_data, w_out, b_out)
+print("Predicted classes:", predicted_classes)
+
+
+# //////////////////////////////////////////////////////////////////////////////////////////////////////////
+import pandas as pd
+import numpy as np
+import matplotlib
+matplotlib.use('TkAgg')
+from sklearn.linear_model import LogisticRegression
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix
+
+# 读取xlsx文件
+df = pd.read_excel('try.xlsx', engine='openpyxl')
+print(df)
+X_train = df[['x', 'x2', 'x3']].values
+y_train = df['z'].values
+
+lr_model = LogisticRegression()
+lr_model.fit(X_train, y_train)
+
+y_pred = lr_model.predict(X_train)
+print("Prediction on training set:", y_pred)
+
+# 获取模型参数
+coefficients = lr_model.coef_
+intercept = lr_model.intercept_
+classes = lr_model.classes_
+
+print("Coefficients (weights):", coefficients)
+print("Intercept (bias):", intercept)
+
+# 计算指标
+accuracy = accuracy_score(y_train, y_pred)
+precision = precision_score(y_train, y_pred)
+recall = recall_score(y_train, y_pred)
+f1 = f1_score(y_train, y_pred)
+# 若为二分类问题，还可以计算 AUC
+# auc = roc_auc_score(y_true, y_pred)
+
+# 生成混淆矩阵
+conf_matrix = confusion_matrix(y_train, y_pred)
+
+print("准确度Accuracy:", accuracy)
+print("精确度Precision:", precision)
+print("召回率Recall:", recall)
+print("精确度和召回率的调和平均值F1 Score:", f1)
+print("混淆矩阵Confusion Matrix:\n", conf_matrix)
+
+# 示例新数据
+new_data = np.array([[50, 20,10], [10, 80,10]])
+
+# 使用模型进行分类
+predicted_classes = lr_model.predict(new_data)
+print("Predicted classes:", predicted_classes)
+
