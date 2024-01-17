@@ -1,0 +1,31 @@
+import matplotlib
+matplotlib.use('TkAgg')
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 读取数据
+df = pd.read_excel('newdata.xlsx', engine='openpyxl')
+
+# 提取需要绘制箱线图的列
+data_to_plot = [df['testY_actual'], df['test_predict']]
+
+# 创建一个图形框架
+plt.figure(figsize=(8, 6))
+
+# 自定义颜色
+colors = ['white', 'white']  # 设置为白色
+
+# 绘制箱线图
+box = plt.boxplot(data_to_plot, patch_artist=True, labels=['Actual', 'Predicted'])
+
+# 设置颜色
+for patch, color in zip(box['boxes'], colors):
+    patch.set_facecolor(color)
+
+# 添加标题和轴标签
+plt.title('Box Plot of Actual vs Predicted Values')
+plt.ylabel('Values')
+
+# 显示图形
+plt.show()
+
