@@ -1,0 +1,305 @@
+import matplotlib
+matplotlib.use('TkAgg')
+import numpy as np
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import calinski_harabasz_score
+from scipy.stats import f_oneway
+
+X = np.array([[0,2],[0,0],[1,0],[5,0],[5,2]])
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+wcss = []
+for i in range(1, 5):  # 测试 1 到 10 个簇
+    kmeans = KMeans(n_clusters=i, init='k-means++', max_iter=300, n_init=30, random_state=0)
+    kmeans.fit(X_scaled)
+    wcss.append(kmeans.inertia_)  # inertia_ 属性给出了 WCSS
+
+# 绘制肘部图
+plt.plot(range(1, 5), wcss)
+plt.title('Elbow method')
+plt.xlabel('class number')
+plt.ylabel('WCSS')  # Within-Cluster Sum of Squares
+plt.show()
+
+# 设定参数
+n_clusters = 2  # 选择适合您数据的簇数
+init = 'k-means++'  # 'k-means++' 初始化通常是最好的选择
+n_init = 30  # 增加这个值以获得更稳定的结果，但会增加计算成本
+max_iter = 300  # 增加最大迭代次数以确保算法有足够的时间收敛
+tol = 1e-4  # 可以减小这个值以提高收敛精度
+random_state = 42  # 可以设定一个固定的值以重现结果
+
+# 应用 KMeans 算法
+kmeans = KMeans(
+    n_clusters=n_clusters,
+    init=init,
+    n_init=n_init,
+    max_iter=max_iter,
+    tol=tol,
+    random_state=random_state
+).fit(X_scaled)
+
+# 输出标签
+print('可信的分类结果：', kmeans.labels_)
+
+# 计算F-value和P-value
+f_values, p_values = [], []
+for cluster_label in np.unique(kmeans.labels_):
+    # 获取当前簇的数据
+    cluster_data = [X[i] for i in range(len(X)) if kmeans.labels_[i] == cluster_label]
+    # 获取每个属性的数据
+    attributes_data = list(zip(*cluster_data))
+
+    # 执行ANOVA
+    f_value, p_value = f_oneway(*attributes_data)
+    f_values.append(f_value)
+    p_values.append(p_value)
+    # 计算均值和标准差
+    mean = np.mean(cluster_data, axis=0)
+    std_dev = np.std(cluster_data, axis=0)
+
+    print(f"簇 {cluster_label} - 均值: {mean}, 标准差: {std_dev}")
+
+# 打印F-value和P-value
+for i, (f_value, p_value) in enumerate(zip(f_values, p_values)):
+    print(f"簇 {i} - F-value(越高越好): {f_value}, P-value（<0.05好）: {p_value}")
+
+# 计算轮廓分数
+silhouette_avg = silhouette_score(X_scaled, kmeans.labels_)
+print(f"Silhouette Coefficient（越接近1越好）：{silhouette_avg}")
+
+# 计算 CH 得分
+ch_score = calinski_harabasz_score(X_scaled, kmeans.labels_)
+print(f"Calinski-Harabasz Score（越高越好）: {ch_score}")
+
+cluster_labels = ["easy", "difficult", "medium"]
+colors = ['orange', 'green', 'purple', 'red', 'blue', 'yellow', 'black']  # 颜色列表
+
+# 可视化聚类结果（使用标准化后的数据）
+for i in range(0, n_clusters):
+    plt.scatter(X_scaled[kmeans.labels_ == i, 0], X_scaled[kmeans.labels_ == i, 1],
+                color=colors[i], label=cluster_labels[i])
+plt.title('KMeans result (Standardized Data)')
+plt.xlabel('Scaled X0')
+plt.ylabel('Scaled X1')
+plt.legend()
+plt.show()
+
+# 可视化聚类结果（原始数据）
+for i in range(0, n_clusters):
+    plt.scatter(X[kmeans.labels_ == i, 0], X[kmeans.labels_ == i, 1],
+                color=colors[i], label=cluster_labels[i])
+plt.title('KMeans result')
+plt.xlabel('X0')
+plt.ylabel('X1')
+plt.legend()
+plt.show()
+
+
+
+# /////////////////////////////////////////////////////////////////////////////////////////
+import matplotlib
+matplotlib.use('TkAgg')
+import numpy as np
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score, calinski_harabasz_score
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from scipy.stats import f_oneway
+
+# 假设您有一些三维数据
+X = np.array([[0, 2, 1], [0, 0, 2], [1, 0, 3], [5, 0, 4], [5, 2, 5]])
+
+# 标准化数据
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 计算 WCSS 用于肘部法则
+wcss = []
+for i in range(1, 5):
+    kmeans = KMeans(n_clusters=i, init='k-means++', max_iter=300, n_init=30, random_state=0)
+    kmeans.fit(X_scaled)
+    wcss.append(kmeans.inertia_)
+
+# 绘制肘部图
+plt.plot(range(1, 5), wcss)
+plt.title('Elbow Method')
+plt.xlabel('Number of Clusters')
+plt.ylabel('WCSS')
+plt.show()
+
+# 设定参数
+n_clusters = 2  # 选择适合您数据的簇数
+init = 'k-means++'  # 'k-means++' 初始化通常是最好的选择
+n_init = 30  # 增加这个值以获得更稳定的结果，但会增加计算成本
+max_iter = 300  # 增加最大迭代次数以确保算法有足够的时间收敛
+tol = 1e-4  # 可以减小这个值以提高收敛精度
+random_state = 42  # 可以设定一个固定的值以重现结果
+
+# 应用 KMeans 算法
+kmeans = KMeans(
+    n_clusters=n_clusters,
+    init=init,
+    n_init=n_init,
+    max_iter=max_iter,
+    tol=tol,
+    random_state=random_state
+).fit(X_scaled)
+
+# 输出标签
+print('可信的分类结果：', kmeans.labels_)
+
+# 计算F-value和P-value
+f_values, p_values = [], []
+for cluster_label in np.unique(kmeans.labels_):
+    # 获取当前簇的数据
+    cluster_data = [X[i] for i in range(len(X)) if kmeans.labels_[i] == cluster_label]
+    # 获取每个属性的数据
+    attributes_data = list(zip(*cluster_data))
+
+    # 执行ANOVA
+    f_value, p_value = f_oneway(*attributes_data)
+    f_values.append(f_value)
+    p_values.append(p_value)
+    # 计算均值和标准差
+    mean = np.mean(cluster_data, axis=0)
+    std_dev = np.std(cluster_data, axis=0)
+
+    print(f"簇 {cluster_label} - 均值: {mean}, 标准差: {std_dev}")
+
+# 打印F-value和P-value
+for i, (f_value, p_value) in enumerate(zip(f_values, p_values)):
+    print(f"簇 {i} - F-value(越高越好): {f_value}, P-value（<0.05好）: {p_value}")
+
+# 计算轮廓分数
+silhouette_avg = silhouette_score(X_scaled, kmeans.labels_)
+print(f"Silhouette Coefficient（越接近1越好）：{silhouette_avg}")
+
+# 计算 CH 得分
+ch_score = calinski_harabasz_score(X_scaled, kmeans.labels_)
+print(f"Calinski-Harabasz Score（越高越好）: {ch_score}")
+
+cluster_labels = ["easy", "difficult", "medium"]
+colors = ['orange', 'green', 'purple', 'red', 'blue', 'yellow', 'black']  # 颜色列表
+
+# 可视化聚类结果（标准化后的数据）
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+for i in range(n_clusters):
+    ax.scatter(X_scaled[kmeans.labels_ == i, 0], X_scaled[kmeans.labels_ == i, 1], X_scaled[kmeans.labels_ == i, 2],
+               color=colors[i], label=cluster_labels[i])
+ax.set_title('KMeans Clustering (Standardized Data)')
+ax.set_xlabel('Scaled X')
+ax.set_ylabel('Scaled Y')
+ax.set_zlabel('Scaled Z')
+ax.legend()
+plt.show()
+
+# 可视化聚类结果（原始数据）
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+for i in range(n_clusters):
+    ax.scatter(X[kmeans.labels_ == i, 0], X[kmeans.labels_ == i, 1], X[kmeans.labels_ == i, 2],
+               color=colors[i], label=cluster_labels[i])
+ax.set_title('KMeans Clustering')
+ax.set_xlabel('X')
+ax.set_ylabel('Y')
+ax.set_zlabel('Z')
+ax.legend()
+plt.show()
+
+
+
+# ///////////////////////////////////////////////////////////////////////////////////////////
+import matplotlib
+matplotlib.use('TkAgg')
+import numpy as np
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score, calinski_harabasz_score
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from scipy.stats import f_oneway
+
+# 假设您有一个多维数据集
+# 例如，这里是一个 5 维数据集
+X = np.array([[0, 2, 1, 3, 4], [0, 0, 2, 3, 4], [1, 0, 3, 3, 4], [5, 0, 4, 3, 4], [5, 2, 5, 3, 4]])
+
+# 标准化数据
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 计算 WCSS 用于肘部法则
+wcss = []
+for i in range(1, 6):
+    kmeans = KMeans(n_clusters=i, init='k-means++', max_iter=300, n_init=30, random_state=0)
+    kmeans.fit(X_scaled)
+    wcss.append(kmeans.inertia_)
+
+# 绘制肘部图
+plt.plot(range(1, 6), wcss)
+plt.title('Elbow Method')
+plt.xlabel('Number of Clusters')
+plt.ylabel('WCSS')
+plt.show()
+
+# 确定簇数并应用 KMeans
+n_clusters = 2
+kmeans = KMeans(n_clusters=n_clusters, init='k-means++', n_init=30, max_iter=300, tol=1e-4, random_state=42).fit(X_scaled)
+
+# 计算F-value和P-value
+f_values, p_values = [], []
+for cluster_label in np.unique(kmeans.labels_):
+    # 获取当前簇的数据
+    cluster_data = [X[i] for i in range(len(X)) if kmeans.labels_[i] == cluster_label]
+    # 获取每个属性的数据
+    attributes_data = list(zip(*cluster_data))
+
+    # 执行ANOVA
+    f_value, p_value = f_oneway(*attributes_data)
+    f_values.append(f_value)
+    p_values.append(p_value)
+    # 计算均值和标准差
+    mean = np.mean(cluster_data, axis=0)
+    std_dev = np.std(cluster_data, axis=0)
+
+    print(f"簇 {cluster_label} - 均值: {mean}, 标准差: {std_dev}")
+
+# 打印F-value和P-value
+for i, (f_value, p_value) in enumerate(zip(f_values, p_values)):
+    print(f"簇 {i} - F-value(越高越好): {f_value}, P-value（<0.05好）: {p_value}")
+
+# 使用 PCA 进行降维到二维
+pca = PCA(n_components=2)
+X_pca = pca.fit_transform(X_scaled)
+
+# 计算轮廓分数和 CH 得分
+silhouette_avg = silhouette_score(X_scaled, kmeans.labels_)
+print(f"Silhouette Coefficient（越接近1越好）: {silhouette_avg}")
+ch_score = calinski_harabasz_score(X_scaled, kmeans.labels_)
+print(f"Calinski-Harabasz Score（越高越好）: {ch_score}")
+
+# 可视化聚类结果
+colors = ['orange', 'green', 'purple', 'red', 'blue', 'yellow', 'black']  # 颜色列表
+cluster_labels = ["Cluster 1", "Cluster 2", "Cluster 3", "Cluster 4", "Cluster 5"]  # 标签列表
+
+plt.figure(figsize=(8, 6))
+for i in range(n_clusters):
+    plt.scatter(X_pca[kmeans.labels_ == i, 0], X_pca[kmeans.labels_ == i, 1],
+                color=colors[i], label=cluster_labels[i])
+plt.title('KMeans with PCA')
+plt.xlabel('Principal Component 1')
+plt.ylabel('Principal Component 2')
+plt.legend()
+plt.show()
+
+
