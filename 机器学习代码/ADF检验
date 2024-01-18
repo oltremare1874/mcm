@@ -1,0 +1,15 @@
+import pandas as pd
+import statsmodels.api as sm
+# 加载数据
+data = pd.read_excel('new.xlsx')
+time_series = data['Number of  reported results']
+print(time_series)
+
+# ADF检验
+result = sm.tsa.adfuller(time_series, autolag='AIC')
+# 输出结果
+print('ADF Statistic: %f' % result[0])
+print('p-value: %f' % result[1])
+print('Critical Values:')
+for key, value in result[4].items():
+    print('\t%s: %.3f' % (key, value))
