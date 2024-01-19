@@ -2,14 +2,27 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import mean_absolute_error
+from sklearn.preprocessing import StandardScaler
 
-df = pd.read_excel('try.xlsx', engine='openpyxl')
+df = pd.read_excel('C题文件/Cdata.xlsx', engine='openpyxl')
 # 划分自变量和目标变量
-X = df[['x', 'x2']].values
-y = df[['x3', 'value']].values
-print(X)
-# 将数据集拆分为70%训练样本数据，30%为测试样本数据
-X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.7,test_size=0.3, random_state=42)
+X = df[['有无重复字母', '单词出现频率', '字母出现频率']].values
+y = df[['1 try', '2 tries', '3 tries', '4 tries', '5 tries', '6 tries', '7 or more tries (X)']].values
+
+# 创建规范化对象
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+# 分别对自变量和目标变量进行规范化
+X_scaled = scaler_X.fit_transform(X)
+y_scaled = scaler_y.fit_transform(y)
+
+# 将规范化后的数据拆分为训练集和测试集
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_scaled, train_size=0.7, test_size=0.3, random_state=42)
+
 
 # 设置随机森林回归模型的参数
 param_grid = {
@@ -20,8 +33,6 @@ param_grid = {
     'max_features': ['log2', 'sqrt']
 }
 
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import GridSearchCV
 
 # 网格搜索法确定最佳参数
 rf = RandomForestRegressor(random_state=42)
@@ -35,14 +46,23 @@ print(grid_search.best_params_)
 # 输出最佳模型的MSE和R^2
 best_rf = grid_search.best_estimator_
 test_predictions = best_rf.predict(X_test)
-best_mse = mean_squared_error(y_test, test_predictions)
-best_r2 = r2_score(y_test, test_predictions)
-print('MSE of the best model: ', best_mse)
-print('R^2 of the best model: ', best_r2)
 
-x = [[1, 1]]
-prediction = best_rf.predict(x)
-print(prediction)
+# 计算误差指标
+mse = mean_squared_error(y_test, test_predictions, multioutput='uniform_average')
+mae = mean_absolute_error(y_test, test_predictions, multioutput='uniform_average')
+r2 = r2_score(y_test, test_predictions, multioutput='variance_weighted')
+
+# 输出误差指标
+print('MSE for each output: ', mse)
+print('MAE for each output: ', mae)
+print('Weighted R^2: ', r2)
+
+x_new = [[1, 0.0000023, 0.418799]]  # 示例新输入
+x_new_scaled = scaler_X.transform(x_new)  # 规范化新输入
+new_prediction_scaled = best_rf.predict(x_new_scaled)  # 预测新输入的规范化结果
+new_prediction = scaler_y.inverse_transform(new_prediction_scaled)  # 将新预测结果转换回原始尺度
+
+print('Predicted value for new input:', new_prediction)
 
 
 # 假设我们添加均值为0，标准差为0.5的高斯噪声
