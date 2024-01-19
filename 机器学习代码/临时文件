@@ -1,1 +1,152 @@
+############################adaboost
+
+
+
+
+
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GridSearchCV
+from sklearn.ensemble import AdaBoostRegressor
+from sklearn.multioutput import MultiOutputRegressor
+
+df = pd.read_excel('Cdata.xlsx', engine='openpyxl')
+
+# 划分自变量和目标变量
+X = df[['有无重复字母', '单词出现频率', '字母出现频率']].values
+y = df[['1 try', '2 tries', '3 tries', '4 tries', '5 tries', '6 tries', '7 or more tries (X)']].values
+
+# 创建规范化对象
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+# 分别对自变量和目标变量进行规范化
+X_scaled = scaler_X.fit_transform(X)
+y_scaled = scaler_y.fit_transform(y)
+
+# 将规范化后的数据拆分为训练集和测试集
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_scaled, train_size=0.7, test_size=0.3, random_state=42)
+
+# Create a MultiOutputRegressor with AdaBoost
+ada_boost = AdaBoostRegressor(random_state=42)
+multioutput_ada = MultiOutputRegressor(ada_boost)
+
+# 设置AdaBoost回归模型的参数
+param_grid = {
+    'estimator__n_estimators': [50, 100, 200],
+    'estimator__learning_rate': [0.01, 0.1, 1],
+    'estimator__loss': ['linear', 'square', 'exponential']
+}
+
+# 网格搜索法确定最佳参数
+grid_search = GridSearchCV(estimator=multioutput_ada, param_grid=param_grid, cv=5, scoring='neg_mean_squared_error', verbose=2, n_jobs=-1)
+grid_search.fit(X_train, y_train)
+
+# 输出最佳参数
+print(grid_search.best_params_)
+
+# 输出最佳模型的MSE和R^2
+best_ada = grid_search.best_estimator_
+test_predictions = best_ada.predict(X_test)
+
+# 计算误差指标
+mse = mean_squared_error(y_test, test_predictions, multioutput='uniform_average')
+mae = mean_absolute_error(y_test, test_predictions, multioutput='uniform_average')
+r2 = r2_score(y_test, test_predictions, multioutput='variance_weighted')
+
+# 输出误差指标
+print('MSE for each output: ', mse)
+print('MAE for each output: ', mae)
+print('Weighted R^2: ', r2)
+
+x_new = [[1, 0.0000023, 0.418799]]  # 示例新输入
+x_new_scaled = scaler_X.transform(x_new)  # 规范化新输入
+new_prediction_scaled = best_ada.predict(x_new_scaled)  # 预测新输入的规范化结果
+
+# 确保new_prediction_scaled是2D数组
+if new_prediction_scaled.ndim == 1:
+    new_prediction_scaled = new_prediction_scaled.reshape(1, -1)
+
+new_prediction = scaler_y.inverse_transform(new_prediction_scaled)  # 将新预测结果转换回原始尺度
+
+print('Predicted value for new input:', new_prediction)
+
+
+
+
+
+
+
+
+###################################################################XGBoost
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GridSearchCV
+from xgboost import XGBRegressor
+
+df = pd.read_excel('Cdata.xlsx', engine='openpyxl')
+
+# 划分自变量和目标变量
+X = df[['有无重复字母', '单词出现频率', '字母出现频率']].values
+y = df[['1 try', '2 tries', '3 tries', '4 tries', '5 tries', '6 tries', '7 or more tries (X)']].values
+
+# 创建规范化对象
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+# 分别对自变量和目标变量进行规范化
+X_scaled = scaler_X.fit_transform(X)
+y_scaled = scaler_y.fit_transform(y)
+
+# 将规范化后的数据拆分为训练集和测试集
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_scaled, train_size=0.7, test_size=0.3, random_state=42)
+
+# 设置XGBoost回归模型的参数
+param_grid = {
+    'n_estimators': [100, 200, 300],
+    'learning_rate': [0.01, 0.05, 0.1],
+    'max_depth': [3, 5, 7, 9],
+    'colsample_bytree': [0.7, 0.8],
+    'subsample': [0.7, 0.8]
+}
+
+# 网格搜索法确定最佳参数
+xgb = XGBRegressor(random_state=42)
+grid_search = GridSearchCV(estimator=xgb, param_grid=param_grid, cv=5, scoring='neg_mean_squared_error', verbose=2, n_jobs=-1)
+grid_search.fit(X_train, y_train)
+
+# 输出最佳参数
+print(grid_search.best_params_)
+
+# 输出最佳模型的MSE和R^2
+best_xgb = grid_search.best_estimator_
+test_predictions = best_xgb.predict(X_test)
+
+# 计算误差指标
+mse = mean_squared_error(y_test, test_predictions, multioutput='uniform_average')
+mae = mean_absolute_error(y_test, test_predictions, multioutput='uniform_average')
+r2 = r2_score(y_test, test_predictions, multioutput='variance_weighted')
+
+# 输出误差指标
+print('MSE for each output: ', mse)
+print('MAE for each output: ', mae)
+print('Weighted R^2: ', r2)
+
+x_new = [[1, 0.0000023, 0.418799]]  # 示例新输入
+x_new_scaled = scaler_X.transform(x_new)  # 规范化新输入
+new_prediction_scaled = best_xgb.predict(x_new_scaled)  # 预测新输入的规范化结果
+
+# 确保new_prediction_scaled是2D数组
+if new_prediction_scaled.ndim == 1:
+    new_prediction_scaled = new_prediction_scaled.reshape(1, -1)
+
+new_prediction = scaler_y.inverse_transform(new_prediction_scaled)  # 将新预测结果转换回原始尺度
+
+print('Predicted value for new input:', new_prediction)
 
