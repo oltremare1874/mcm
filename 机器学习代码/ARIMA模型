@@ -1,0 +1,88 @@
+import pandas as pd
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+import statsmodels.api as sm
+import numpy as np
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.stats.diagnostic import acorr_ljungbox
+
+data = pd.read_excel('.xlsx', index_col='Date', parse_dates=True)
+# 'Y' 表示每年， 'W' 表示每周， 'M'  # 如果是每月数据，  'D'，代表每日数据
+data.index.freq = 'D'
+print(data)
+
+time_series = data['Value']
+time_series.dropna(inplace=True)
+
+# 信息准则越小越好
+p = 0
+d = 1
+q = 1
+model = ARIMA(time_series, order=(p, d, q))
+model_fit = model.fit()
+aic = model_fit.aic
+bic = model_fit.bic
+hqic = model_fit.hqic
+print(f'AIC: {aic}')
+print(f'BIC: {bic}')
+print(f'HQIC: {hqic}')
+
+# 残差
+resid = model_fit.resid
+fig = plt.figure(figsize=(12,8))
+ax1 = fig.add_subplot(211)
+fig = sm.graphics.tsa.plot_acf(resid.values.squeeze(), lags=40, ax=ax1)
+ax2 = fig.add_subplot(212)
+fig = sm.graphics.tsa.plot_pacf(resid, lags=40, ax=ax2)
+plt.show()
+
+# Ljung-Box检验（如果p值大于显著性水平（通常为0.05），则不能拒绝原假设，即残差为白噪声，表明模型拟合良好）
+lb_test = acorr_ljungbox(resid, lags=[20], return_df=True)
+print(lb_test)
+
+
+# 预测未来的数据点
+n_forecast = 60  # 预测未来的时间点数量
+forecast = model_fit.get_forecast(steps=n_forecast)
+forecast_mean = forecast.predicted_mean
+conf_int = forecast.conf_int()
+
+# 获取训练集上的预测
+in_sample_prediction = model_fit.predict(start=time_series.index[0], end=time_series.index[-1])
+
+# 80% 置信区间
+conf_int_80 = forecast.conf_int(alpha=0.20)
+# 95% 置信区间
+conf_int_95 = forecast.conf_int(alpha=0.05)
+
+# print("80% 置信区间:", conf_int_80)
+# print("95% 置信区间:", conf_int_95)
+print("预测结果:", forecast_mean)
+
+# 设置图表的大小
+plt.figure(figsize=(14, 7))
+
+# 设置颜色代码
+confidence_interval_95_color = '#B1D1FC'
+confidence_interval_80_color = '#6495ED'
+observed_values_color = 'C1'
+predicted_values_color = 'C7'
+# 绘制实际观测值
+plt.plot(time_series.index, time_series, label='Observed values', color=observed_values_color)
+# 绘制内样本预测值
+plt.plot(in_sample_prediction.index, in_sample_prediction, label='Predicted values', color=predicted_values_color)
+
+# 绘制未来预测值
+plt.plot(forecast_mean.index, forecast_mean, label='Forecast values', color='C0')
+# 绘制80%置信区间
+plt.fill_between(conf_int_80.index, conf_int_80.iloc[:, 0], conf_int_80.iloc[:, 1], color=confidence_interval_80_color, alpha=0.3, label='80% confidence interval')
+# 绘制95%置信区间
+plt.fill_between(conf_int_95.index, conf_int_95.iloc[:, 0], conf_int_95.iloc[:, 1], color=confidence_interval_95_color, alpha=0.5, label='95% confidence interval')
+
+# 设置图表标题和坐标轴标签
+plt.title('Value - ARIMA Model')
+plt.xlabel('Date')
+plt.ylabel('Value')
+plt.legend()
+plt.show()
