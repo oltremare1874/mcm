@@ -11,13 +11,13 @@ import torch.optim as optim
 
 
 # 读取 Excel 文件
-data = pd.read_excel('testdata.xlsx', engine='openpyxl')
+data = pd.read_excel('btb.xlsx', engine='openpyxl')
 data['Date'] = pd.to_datetime(data['Date'])
 data = data.set_index('Date')
 print(data)
 # 提取目标列并归一化
 scaler = MinMaxScaler(feature_range=(0, 1))
-data_normalized = scaler.fit_transform(data[['Number of  reported results']].values)
+data_normalized = scaler.fit_transform(data[['Value']].values)
 data_tensor = torch.FloatTensor(data_normalized).view(-1)
 
 # 创建数据集
@@ -34,14 +34,14 @@ class GRUModel(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(GRUModel, self).__init__()
         self.hidden_size = hidden_size
-        self.gru = nn.GRU(input_size, hidden_size,num_layers=1, batch_first=True)
+        self.gru = nn.GRU(input_size, hidden_size, num_layers=1, batch_first=True)
         self.linear = nn.Linear(hidden_size, output_size)
         self.dropout = nn.Dropout(0.1)
 
     def forward(self, x):
         out, _ = self.gru(x)
         out = self.linear(out[:, -1, :])
-        return out
+        return out.view(-1, 1)
 
 look_back = 5
 # 数据集划分
@@ -52,13 +52,13 @@ train_data, test_data = data_tensor[0:train_size], data_tensor[train_size:len(da
 trainX, trainY = create_dataset(train_data, look_back)
 testX, testY = create_dataset(test_data, look_back)
 
-trainX = trainX.view(-1, 1, look_back)
+trainX = trainX.view(-1, look_back, 1)
 trainY = trainY.view(-1, 1)
-testX = testX.view(-1, 1, look_back)
+testX = testX.view(-1, look_back, 1)
 testY = testY.view(-1, 1)
 # 初始化模型、损失函数和优化器
-input_size = look_back
-hidden_size = 32
+input_size = 1
+hidden_size = 100
 output_size = 1
 
 model = GRUModel(input_size, hidden_size, output_size)
@@ -66,7 +66,7 @@ criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # 训练模型
-num_epochs = 2000  # 您可以根据需要调整此值
+num_epochs = 1000  # 您可以根据需要调整此值
 
 for epoch in range(num_epochs):
     outputs = model(trainX)
@@ -99,7 +99,7 @@ testY_actual = scaler.inverse_transform(testY.numpy())
 test_predict = np.array(test_predict).flatten()
 testY_actual = np.array(testY_actual).flatten()
 future_df = pd.DataFrame({'testY_actual': testY_actual, 'test_predict': test_predict})
-future_df.to_excel("优化data.xlsx", index=False)
+# future_df.to_excel("优化data.xlsx", index=False)
 
 # 计算整个测试集的平均相对误差
 error = np.abs(testY_actual - test_predict)
@@ -127,10 +127,10 @@ train_predict_index = range(look_back, len(train_predict) + look_back)
 test_predict_index = range(len(train_predict) + (2 * look_back), len(data_tensor))
 
 # 绘制训练集预测结果
-plt.figure(figsize=(12, 6))
-plt.plot(data.index, scaler.inverse_transform(data_tensor.reshape(-1, 1)), label='Actual Data', color='C0')
-plt.plot(data.index[list(train_predict_index)], train_predict, label='Train Predict', color='C2')
-plt.plot(data.index[list(test_predict_index)], test_predict, label='Test Predict', color='C1')
+plt.figure(figsize=(8, 6))
+plt.plot(data.index, scaler.inverse_transform(data_tensor.reshape(-1, 1)), label='Actual Data', color='#318AE3')
+plt.plot(data.index[list(train_predict_index)], train_predict, label='Train Predict', color='#E68300')
+plt.plot(data.index[list(test_predict_index)], test_predict, label='Test Predict', color='#FF1E0D')
 plt.title('Train and Test Predictions vs Actual')
 plt.xlabel('Date')
 plt.ylabel('Number of Reported Results')
@@ -138,81 +138,92 @@ plt.legend()
 plt.show()
 
 # 绘制测试集预测结果
-plt.figure(figsize=(12, 6))
-plt.plot(data.index[list(test_predict_index)], testY_actual, label='Actual Test Data', color='C0')
-plt.plot(data.index[list(test_predict_index)], test_predict, label='Predicted Test Data', color='C1')
-plt.title('Test Set Prediction')
-plt.xlabel('Date')
-plt.ylabel('Number of Reported Results')
-plt.legend()
-plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=10))
+# 创建图表和主坐标轴
+fig, ax1 = plt.subplots(figsize=(8, 6))
+# 绘制实际值和预测值
+ax1.plot(data.index[list(test_predict_index)], testY_actual, label='Actual Test Data', color='#318AE3')
+ax1.plot(data.index[list(test_predict_index)], test_predict, label='Predicted Test Data', color='#ED6969')
+ax1.set_title('Test Set Prediction with Error Bars')
+ax1.set_xlabel('Date')
+ax1.set_ylabel('Number of Reported Results')
+ax1.legend(loc='upper left')
+# 计算误差的绝对值
+errors = np.abs(testY_actual - test_predict)
+# 创建次坐标轴
+ax2 = ax1.twinx()
+# 绘制面积图
+ax2.fill_between(data.index[list(test_predict_index)], 0, errors, label='Prediction Error', color='#39B036', alpha=0.5, edgecolor='#299729', linewidth=1.0)
+# 设置y轴标签
+ax2.set_ylabel('Error')
+# 设置主坐标轴的y轴范围
+ax1.set_ylim(10000, 40000)
+# 设置次坐标轴的y轴范围
+ax2.set_ylim(0, 7000)
+# 添加图例
+ax2.legend(loc='upper right')
+# 设置x轴的日期格式
+ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+ax1.xaxis.set_major_locator(mdates.DayLocator(interval=20))
 plt.xticks(rotation=45)
+# 显示图表
 plt.show()
 
+# 进行未来60天的预测
+future_predictions = []
+future_data = data_tensor[-look_back:].view(-1, look_back, 1)
 
-# 进行预测并存储预测结果
-predictions = []
-future_data = data_tensor[-look_back:].view(1, 1, look_back)
-for i in range(60):
-    prediction = model(future_data)
-    future_data = torch.cat([future_data[:, :, 1:], prediction.view(1, 1, 1)], dim=2)
-    predictions.append(prediction.view(-1).item())
+with torch.no_grad():  # 确保在预测时不会计算梯度
+    for _ in range(60):
+        prediction = model(future_data)
+        future_predictions.append(prediction.view(-1).item())
+        # 更新 future_data 以包含最新预测，同时移除最早的数据点
+        new_data_point = torch.tensor([[future_predictions[-1]]])
+        future_data = torch.cat((future_data[:, 1:, :], new_data_point.view(-1, 1, 1)), dim=1)
 
 # 将预测结果逆归一化
-predicted_values = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
+predicted_values = scaler.inverse_transform(np.array(future_predictions).reshape(-1, 1))
 
 # 生成未来日期
 last_date = data.index[-1]
-future_dates = pd.date_range(start=last_date, periods=61)
-future_dates_formatted = future_dates.strftime('%Y-%m-%d')
-
-# 将二维的 predicted_values 转换为一维数组
-predicted_values_flat = np.array(predicted_values).flatten()
-
-# 确保 future_dates 的长度与 predicted_values 相同
-future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=len(predicted_values_flat))
+future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=60)
 
 # 绘制图表
 plt.figure(figsize=(12, 6))
-plt.plot(data.index, data['Number of  reported results'], label='Original Data')
-plt.plot(future_dates, predicted_values, label='Predicted Data', color='C3')
+plt.plot(data.index, data['Value'], label='Original Data', color='#318AE3')
+plt.plot(future_dates, predicted_values, label='Predicted Data', color='#FF1E0D')
 plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
 plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=30))
 plt.xticks(rotation=45)
 plt.legend()
 plt.xlabel('Date')
-plt.ylabel('Numberof Reported Results')
+plt.ylabel('Number of Reported Results')
 plt.title('Time Series Forecasting')
 plt.show()
 
 # 创建一个包含日期和预测值的 DataFrame
 predictions_df = pd.DataFrame({
     'Date': future_dates,
-    'Predicted Values': predicted_values_flat
+    'Predicted Values': predicted_values.flatten()
 })
 print(predictions_df)
-# 保存 DataFrame 到 Excel 文件
-predictions_df.to_excel("predicted_data.xlsx", index=False)
 
-# ////////////////////////////////////////////////////////////////////////////////////////////////
+
+# ///////////////////////////////////////////////////////////////////////////////////////////////////////
 import matplotlib
 matplotlib.use('TkAgg')
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-
 # 读取 Excel 文件
-data = pd.read_excel('testdata.xlsx', engine='openpyxl')
+data = pd.read_excel('new.xlsx', engine='openpyxl')
 data['Date'] = pd.to_datetime(data['Date'])
 data = data.set_index('Date')
 print(data)
+
 # 提取目标列并归一化
 scaler = MinMaxScaler(feature_range=(0, 1))
 data_normalized = scaler.fit_transform(data[['Number of  reported results']].values)
@@ -229,30 +240,17 @@ def create_dataset(dataset, look_back):
 
 # 定义 GRU 模型
 class GRUModel(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, dropout, output_size):
+    def __init__(self, input_size, hidden_size, output_size):
         super(GRUModel, self).__init__()
         self.hidden_size = hidden_size
-        self.num_layers = num_layers
+        self.gru = nn.GRU(input_size, hidden_size, num_layers=1, batch_first=True)
+        self.linear = nn.Linear(hidden_size, output_size)
+        self.dropout = nn.Dropout(0.1)
 
-        # GRU Layer
-        self.gru = nn.GRU(input_size, hidden_size, num_layers,
-                          batch_first=True, dropout=dropout)
-
-        # Fully connected layer
-        self.fc = nn.Linear(hidden_size, output_size)
-
-    def forward(self, x, hidden=None):
-        # Initialize hidden state with zeros if hidden is not provided
-        if hidden is None:
-            hidden = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-
-        # GRU forward pass
-        out, hidden = self.gru(x, hidden)
-
-        # We only need the last time step output
-        out = self.fc(out[:, -1, :])
+    def forward(self, x):
+        out, _ = self.gru(x)
+        out = self.linear(out[:, -1, :])
         return out
-
 
 look_back = 5
 # 数据集划分
@@ -263,119 +261,59 @@ train_data, test_data = data_tensor[0:train_size], data_tensor[train_size:len(da
 trainX, trainY = create_dataset(train_data, look_back)
 testX, testY = create_dataset(test_data, look_back)
 
-trainX = trainX.view(-1, 1, look_back)
+trainX = trainX.view(-1, look_back, 1)
 trainY = trainY.view(-1, 1)
-testX = testX.view(-1, 1, look_back)
+testX = testX.view(-1, look_back, 1)
 testY = testY.view(-1, 1)
-# 初始化模型、损失函数和优化器
-input_size = look_back
-hidden_size = 16  # Size of hidden layer
-num_layers = 2  # Number of GRU layers
-dropout = 0.2   # Dropout rate
-output_size = 1  # Output size
 
+input_size = 1
+hidden_size = 32
+output_size = 1
+num_epochs = 2000  # 调整为所需的迭代次数
 
-model = GRUModel(input_size, hidden_size, num_layers, dropout, output_size)
-criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+# 为3月1日的预测建立一个空列表
+march_1st_predictions = []
 
-# 训练模型
-num_epochs = 2000  # 您可以根据需要调整此值
+# 运行模型100次
+for iteration in range(10):
+    # 初始化模型、损失函数和优化器
+    model = GRUModel(input_size, hidden_size, output_size)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-for epoch in range(num_epochs):
-    outputs = model(trainX)
-    loss = criterion(outputs, trainY)
+    # 训练模型
+    for epoch in range(num_epochs):
+        outputs = model(trainX)
+        optimizer.zero_grad()
+        loss = criterion(outputs, trainY)
+        loss.backward()
+        optimizer.step()
 
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+    # 进行预测并存储预测结果
+    predictions = []
+    future_data = data_tensor[-look_back:].view(-1, look_back, 1)
+    with torch.no_grad():
+        for i in range(60):  # 假设3月1日是未来第60天
+            prediction = model(future_data)
+            predictions.append(prediction.view(-1).item())
+            # 更新 future_data 以包含最新预测，同时移除最早的数据点
+            new_data_point = torch.tensor([[predictions[-1]]])
+            future_data = torch.cat((future_data[:, 1:, :], new_data_point.view(-1, 1, 1)), dim=1)
 
-    if (epoch+1) % 100 == 0:
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
+    # 将预测结果逆归一化
+    predicted_values = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
 
-# 保存模型
-torch.save(model.state_dict(), 'model_gru.pth')
+    # 获取并打印3月1日的预测结果
+    march_1st_prediction = predicted_values[59][0]  # 获取3月1日的预测结果
+    print(f"第{iteration+1}轮预测，3月1日的预测值: {march_1st_prediction}")
 
-# 加载模型
-model = GRUModel(input_size, hidden_size, num_layers, dropout, output_size)
-model.load_state_dict(torch.load('model_gru.pth'))
-model.eval()  # 将模型设置为评估模式
+    # 将结果添加到列表中
+    march_1st_predictions.append(march_1st_prediction)
 
-train_predict = model(trainX)
-test_predict = model(testX)
+# 计算3月1日预测的平均值和标准差
+mean_prediction = np.mean(march_1st_predictions)
+std_deviation = np.std(march_1st_predictions)
 
-# 将预测结果逆归一化
-train_predict = scaler.inverse_transform(train_predict.detach().numpy())
-test_predict = scaler.inverse_transform(test_predict.detach().numpy())
-testY_actual = scaler.inverse_transform(testY.numpy())
-
-# 计算相对误差率
-relative_errors = np.abs((testY_actual - test_predict) / testY_actual) * 100
-test_predict = np.array(test_predict).flatten()
-testY_actual = np.array(testY_actual).flatten()
-future_df = pd.DataFrame({'testY_actual': testY_actual, 'test_predict': test_predict})
-# 保存数据
-future_df.to_excel("优化data.xlsx", index=False)
-# 您可以计算整个数据集的平均相对误差
-average_relative_error = np.mean(relative_errors)
-print("Average Relative Error: {:.2f}%".format(average_relative_error))
-
-
-# 实际值与预测值的索引
-train_predict_index = range(look_back, len(train_predict) + look_back)
-test_predict_index = range(len(train_predict) + (2 * look_back), len(data_tensor))
-
-# 绘制训练集预测结果
-plt.figure(figsize=(12, 6))
-plt.plot(data.index, scaler.inverse_transform(data_tensor.reshape(-1, 1)), label='Actual Data')
-plt.plot(data.index[list(train_predict_index)], train_predict, label='Train Predict')
-plt.plot(data.index[list(test_predict_index)], test_predict, label='Test Predict')
-plt.title('Train and Test Predictions vs Actual')
-plt.xlabel('Date')
-plt.ylabel('Number of Reported Results')
-plt.legend()
-plt.show()
-
-# 进行预测并存储预测结果
-predictions = []
-future_data = data_tensor[-look_back:].view(1, 1, look_back)
-for i in range(60):
-    prediction = model(future_data)
-    future_data = torch.cat([future_data[:, :, 1:], prediction.view(1, 1, 1)], dim=2)
-    predictions.append(prediction.view(-1).item())
-
-# 将预测结果逆归一化
-predicted_values = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
-
-# 生成未来日期
-last_date = data.index[-1]
-future_dates = pd.date_range(start=last_date, periods=61)
-future_dates_formatted = future_dates.strftime('%Y-%m-%d')
-
-# 将二维的 predicted_values 转换为一维数组
-predicted_values_flat = np.array(predicted_values).flatten()
-
-# 确保 future_dates 的长度与 predicted_values 相同
-future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=len(predicted_values_flat))
-
-# 绘制图表
-plt.figure(figsize=(12, 6))
-plt.plot(data.index, data['Number of  reported results'], label='Original Data')
-plt.plot(future_dates, predicted_values, label='Predicted Data', color='red')
-plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=10))
-plt.xticks(rotation=45)
-plt.legend()
-plt.xlabel('Date')
-plt.ylabel('Numberof Reported Results')
-plt.title('Time Series Forecasting')
-plt.show()
-
-# 创建一个包含日期和预测值的 DataFrame
-predictions_df = pd.DataFrame({
-    'Date': future_dates,
-    'Predicted Values': predicted_values_flat
-})
-print(predictions_df)
-# 保存 DataFrame 到 Excel 文件
-predictions_df.to_excel("predicted_data.xlsx", index=False)
+# 打印平均预测结果和标准差
+print(f"\n3月1日的平均预测值: {mean_prediction}")
+print(f"3月1日的预测标准差: {std_deviation}")
