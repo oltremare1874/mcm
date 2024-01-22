@@ -1,0 +1,146 @@
+import matplotlib
+matplotlib.use('TkAgg')
+################################################################### 异常值
+import pandas as pd
+
+# 加载数据
+data = pd.read_excel('new.xlsx')
+time_series = data['Number of  reported results']
+
+# 设置窗口大小
+window_size = 20
+
+# 计算滚动平均值和标准差
+rolling_mean = time_series.rolling(window=window_size).mean()
+rolling_std = time_series.rolling(window=window_size).std()
+
+# 定义倍数来识别异常数据点（异常值定义为滚动平均值之上或之下factor倍标准差的值）
+factor = 3
+
+# 识别异常值
+outliers = (time_series > (rolling_mean + factor * rolling_std)) | (time_series < (rolling_mean - factor * rolling_std))
+
+# 标记异常值
+data['outlier'] = outliers
+
+# 输出异常值
+print(data[data['outlier']])
+
+################################################################### 分析图
+import matplotlib
+matplotlib.use('TkAgg')
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from statsmodels.tsa.seasonal import seasonal_decompose
+import matplotlib.dates as mdates
+months = mdates.MonthLocator()  # 每月一个主要刻度
+months_fmt = mdates.DateFormatter('%Y-%m')  # 定义刻度标签的格式
+# 从Excel文件中读取数据
+file_path = 'new.xlsx'  # 替换为你的文件路径
+data = pd.read_excel(file_path, parse_dates=['Date'])
+
+# 确保Date是索引并且设置为DatetimeIndex
+data.set_index('Date', inplace=True)
+
+data = data.asfreq('D').interpolate(method='linear')
+
+# 取对数以稳定方差
+ts_log = np.log(data['Number of  reported results'])
+
+# 时间序列分解
+decomposition = seasonal_decompose(ts_log, period=7)
+
+trend = decomposition.trend
+seasonal = decomposition.seasonal
+residual = decomposition.resid
+
+# 绘制图形
+plt.figure(figsize=(10, 8))
+
+plt.subplot(411)
+plt.plot(ts_log, label='Original')
+plt.legend(loc='best')
+
+plt.subplot(412)
+plt.plot(trend, label='Trend')
+plt.legend(loc='best')
+
+plt.subplot(413)
+plt.plot(seasonal, label='Seasonality')
+plt.legend(loc='best')
+plt.gca().xaxis.set_major_locator(months)  # 设置主要刻度
+plt.gca().xaxis.set_major_formatter(months_fmt)  # 设置刻度格式
+for tick in plt.gca().get_xticks():
+    plt.axvline(x=tick, color='gray', linestyle='--', alpha=0.5)
+
+
+plt.subplot(414)
+plt.plot(residual, label='Residuals')
+plt.legend(loc='best')
+
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(50, 50))
+plt.plot(seasonal, label='Seasonality')
+plt.legend(loc='best')
+# 设置每周为主要刻度
+plt.gca().xaxis.set_major_locator(mdates.WeekdayLocator())
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+plt.xticks(rotation=45)
+for tick in plt.gca().get_xticks():
+    plt.axvline(x=tick, color='gray', linestyle='--', alpha=0.5)
+
+plt.show()
+
+################################################################### ADF检验
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+import pandas as pd
+import statsmodels.api as sm
+# 加载数据
+data = pd.read_excel('new.xlsx')
+time_series = data['Number of  reported results']
+print(time_series)
+
+# ADF检验
+result = sm.tsa.adfuller(time_series, autolag='AIC')
+# 输出结果
+print('ADF Statistic: %f' % result[0])
+print('p-value: %f' % result[1])
+print('Critical Values:')
+for key, value in result[4].items():
+    print('\t%s: %.3f' % (key, value))
+
+
+# 一阶差分
+diff1 = time_series.diff().dropna()
+result = sm.tsa.adfuller(diff1, autolag='AIC')
+# 输出结果
+print('ADF Statistic: %f' % result[0])
+print('p-value: %f' % result[1])
+print('Critical Values:')
+for key, value in result[4].items():
+    print('\t%s: %.3f' % (key, value))
+
+
+# 二阶差分
+diff2 = diff1.diff().dropna()
+result = sm.tsa.adfuller(diff2, autolag='AIC')
+# 输出结果
+print('ADF Statistic: %f' % result[0])
+print('p-value: %f' % result[1])
+print('Critical Values:')
+for key, value in result[4].items():
+    print('\t%s: %.3f' % (key, value))
+
+fig = plt.figure(figsize=(12,8))
+# 自相关
+ax1 = fig.add_subplot(211)
+fig = sm.graphics.tsa.plot_acf(diff1, lags=40,ax=ax1)
+# 偏相关
+ax2 = fig.add_subplot(212)
+fig = sm.graphics.tsa.plot_pacf(diff1, lags=40,ax=ax2)
+plt.show()
