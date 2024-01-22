@@ -1,0 +1,174 @@
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import matplotlib.dates as mdates
+
+# LSTM 模型定义
+class LSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size):
+        super(LSTMModel, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+        self.linear = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        out, _ = self.lstm(x, (h0, c0))
+        out = self.linear(out[:, -1, :])
+        return out
+
+# 读取数据并预处理
+data = pd.read_excel('btb.xlsx', engine='openpyxl')
+data['Date'] = pd.to_datetime(data['Date'])
+data = data.set_index('Date')
+
+scaler = MinMaxScaler(feature_range=(0, 1))
+data_normalized = scaler.fit_transform(data[['Value']].values)
+data_tensor = torch.FloatTensor(data_normalized).view(-1)
+
+# 创建数据集
+def create_dataset(dataset, look_back):
+    dataX, dataY = [], []
+    for i in range(len(dataset)-look_back):
+        a = dataset[i:(i+look_back)]
+        dataX.append(a)
+        dataY.append(dataset[i + look_back])
+    return torch.stack(dataX), torch.stack(dataY)
+
+look_back = 30
+train_size = int(len(data_tensor) * 0.7)
+test_size = len(data_tensor) - train_size
+
+train_data, test_data = data_tensor[0:train_size], data_tensor[train_size:len(data_tensor)]
+trainX, trainY = create_dataset(train_data, look_back)
+testX, testY = create_dataset(test_data, look_back)
+
+trainX = trainX.view(-1, look_back, 1)
+trainY = trainY.view(-1, 1)
+testX = testX.view(-1, look_back, 1)
+testY = testY.view(-1, 1)
+
+# 初始化 LSTM 模型、损失函数和优化器
+input_size = 1
+hidden_size = 100
+num_layers = 2
+output_size = 1
+
+model = LSTMModel(input_size, hidden_size, num_layers, output_size)
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+# 训练模型
+num_epochs = 700
+
+for epoch in range(num_epochs):
+    outputs = model(trainX)
+    loss = criterion(outputs, trainY)
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    if (epoch+1) % 100 == 0:
+        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
+
+# 保存模型
+torch.save(model.state_dict(), 'model_lstm.pth')
+
+# 加载模型并设置为评估模式
+model = LSTMModel(input_size, hidden_size, num_layers, output_size)
+model.load_state_dict(torch.load('model_lstm.pth'))
+model.eval()
+
+# 预测
+train_predict = model(trainX)
+test_predict = model(testX)
+
+# 逆归一化
+train_predict = scaler.inverse_transform(train_predict.detach().numpy())
+test_predict = scaler.inverse_transform(test_predict.detach().numpy())
+testY_actual = scaler.inverse_transform(testY.numpy())
+
+# 计算整个测试集的平均相对误差
+error = np.abs(testY_actual - test_predict)
+average_error = np.mean(error)
+relative_errors = np.abs((testY_actual - test_predict) / testY_actual) * 100
+average_relative_error = np.mean(relative_errors)
+print("Average Relative Error : {:.2f}".format(average_error))
+print("Average Relative Error Rate: {:.2f}%".format(average_relative_error))
+
+# 计算MSE
+mse = np.mean((testY_actual - test_predict)**2)
+# 计算实际值的平均值
+mean_actual = np.mean(testY_actual)
+# 计算RMSE
+rmse = np.sqrt(mse)
+# 计算RRMSE
+rrmse = (rmse / mean_actual) * 100
+
+print("MSE: {:.2f}".format(mse))
+print("RMSE: {:.2f}".format(rmse))
+print("RRMSE: {:.2f}%".format(rrmse))
+
+# 实际值与预测值的索引
+train_predict_index = range(look_back, len(train_predict) + look_back)
+test_predict_index = range(len(train_predict) + (2 * look_back), len(data_tensor))
+
+# 绘制训练集预测结果
+plt.figure(figsize=(8, 6))
+plt.plot(data.index, scaler.inverse_transform(data_tensor.reshape(-1, 1)), label='Actual Data', color='#318AE3')
+plt.plot(data.index[list(train_predict_index)], train_predict, label='Train Predict', color='#E68300')
+plt.plot(data.index[list(test_predict_index)], test_predict, label='Test Predict', color='#FF1E0D')
+plt.title('Train and Test Predictions vs Actual')
+plt.xlabel('Date')
+plt.ylabel('Number of Reported Results')
+plt.legend()
+plt.show()
+
+# 进行未来60天的预测
+future_predictions = []
+future_data = data_tensor[-look_back:].view(-1, look_back, 1)
+
+with torch.no_grad():  # 确保在预测时不会计算梯度
+    for _ in range(60):
+        prediction = model(future_data)
+        future_predictions.append(prediction.view(-1).item())
+        # 更新 future_data 以包含最新预测，同时移除最早的数据点
+        new_data_point = torch.tensor([[future_predictions[-1]]])
+        future_data = torch.cat((future_data[:, 1:, :], new_data_point.view(-1, 1, 1)), dim=1)
+
+# 将预测结果逆归一化
+predicted_values = scaler.inverse_transform(np.array(future_predictions).reshape(-1, 1))
+
+# 生成未来日期
+last_date = data.index[-1]
+future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=60)
+
+# 绘制图表
+plt.figure(figsize=(12, 6))
+plt.plot(data.index, data['Value'], label='Original Data', color='#318AE3')
+plt.plot(future_dates, predicted_values, label='Predicted Data', color='#FF1E0D')
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=30))
+plt.xticks(rotation=45)
+plt.legend()
+plt.xlabel('Date')
+plt.ylabel('Number of Reported Results')
+plt.title('Time Series Forecasting')
+plt.show()
+
+# 创建一个包含日期和预测值的 DataFrame
+predictions_df = pd.DataFrame({
+    'Date': future_dates,
+    'Predicted Values': predicted_values.flatten()
+})
+print(predictions_df)
+
