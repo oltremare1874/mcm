@@ -1,0 +1,74 @@
+import pandas as pd
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.mixture import GaussianMixture
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+import os
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score, v_measure_score, adjusted_rand_score
+
+
+# 设置环境变量 OMP_NUM_THREADS
+os.environ['OMP_NUM_THREADS'] = '2'
+
+# 1. 读取数据
+df = pd.read_excel('new.xlsx')  # 替换为你的Excel文件路径
+
+# 2. 选择特征
+X = df[['1 try', '2 tries', '3 tries', '4 tries', '5 tries', '6 tries', '7 or more tries (X)']]
+
+# 3. 数据标准化
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 4. 拟合GMM模型
+gmm = GaussianMixture(n_components=3, random_state=42)  # 指定聚类簇数，可以根据需要进行调整
+gmm.fit(X_scaled)
+
+# 5. 获取簇分配
+cluster_labels = gmm.predict(X_scaled)
+
+df['Cluster'] = cluster_labels
+
+# 7. 计算每个簇的均值和标准差
+cluster_statistics = df.groupby('Cluster').agg({'1 try': ['mean', 'std'],
+                                                '2 tries': ['mean', 'std'],
+                                                '3 tries': ['mean', 'std'],
+                                                '4 tries': ['mean', 'std'],
+                                                '5 tries': ['mean', 'std'],
+                                                '6 tries': ['mean', 'std'],
+                                                '7 or more tries (X)': ['mean', 'std']})
+
+
+# 8. 打印输出每个簇的均值和标准差
+for cluster_label, stats in cluster_statistics.iterrows():
+    print(f'Cluster {cluster_label} Statistics:')
+    for feature in X.columns:
+        mean = stats[feature]['mean']
+        std = stats[feature]['std']
+        print(f'{feature}: Mean={mean:.2f}, Std={std:.2f}')
+
+# 6. 使用PCA降维
+pca = PCA(n_components=2)  # 选择要保留的主成分数量，这里选择2个方便可视化
+X_pca = pca.fit_transform(X_scaled)
+
+# 7. 可视化降维后的结果
+plt.figure(figsize=(8, 6))
+sns.scatterplot(x=X_pca[:, 0], y=X_pca[:, 1], hue=cluster_labels, palette='viridis', legend='full')
+plt.title('GMM Clustering with PCA Visualization')
+plt.xlabel('Principal Component 1')
+plt.ylabel('Principal Component 2')
+plt.show()
+
+# 6. 计算聚类效果评估指标
+silhouette = silhouette_score(X_scaled, cluster_labels)
+calinski_harabasz = calinski_harabasz_score(X_scaled, cluster_labels)
+davies_bouldin = davies_bouldin_score(X_scaled, cluster_labels)
+
+
+# 7. 输出评估指标
+print(f'Silhouette Score: {silhouette:.2f}')
+print(f'Calinski-Harabasz Index: {calinski_harabasz:.2f}')
+print(f'Davies-Bouldin Index: {davies_bouldin:.2f}')
