@@ -1,0 +1,26 @@
+import pandas as pd
+from sklearn.feature_selection import RFE
+from sklearn.linear_model import LinearRegression  # 选择适合你问题类型的模型
+from sklearn.ensemble import RandomForestRegressor
+# 读取你的数据，假设数据文件名为data.xlsx
+data = pd.read_excel('C题文件/Cdata.xlsx')
+
+# 提取输入特征和输出特征
+X = data[['有无重复字母', '单词出现频率', '字母出现频率', '首字母频率', '音节数']]
+y = data[['1 try', '2 tries', '3 tries', '4 tries', '5 tries', '6 tries', '7 or more tries (X)']]
+
+# 使用随机森林回归器
+model = RandomForestRegressor()
+
+# 创建RFE对象，指定模型和要选择的特征数量）
+rfe = RFE(estimator=model, n_features_to_select=1)
+
+# 使用RFE来拟合模型并选择重要特征
+rfe.fit(X, y)
+
+# 输出特征的排名，排名越低越重要
+print("特征排名：", rfe.ranking_)
+
+# 输出选择的重要特征
+selected_features = [feature for i, feature in enumerate(X.columns) if rfe.support_[i]]
+print("最重要特征：", selected_features)
