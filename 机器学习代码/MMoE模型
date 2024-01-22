@@ -1,0 +1,152 @@
+import pandas as pd
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GridSearchCV
+from skorch import NeuralNetRegressor
+from sklearn.metrics import r2_score
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from sklearn.model_selection import train_test_split
+
+# 读取和准备数据
+excel_file = 'C题文件/Cdata.xlsx'
+df = pd.read_excel(excel_file)
+input_features = df[['有无重复字母', '单词出现频率', '字母出现频率']]
+output_variables = df[['1 try', '2 tries', '3 tries', '4 tries', '5 tries', '6 tries', '7 or more tries (X)']]
+
+# 标准化输入特征
+scaler = StandardScaler()
+input_features_scaled = scaler.fit_transform(input_features)
+
+train_inputs, test_inputs, train_outputs, test_outputs = train_test_split(input_features_scaled, output_variables, test_size=0.2, random_state=42)
+
+# 转换为PyTorch张量
+train_inputs = torch.tensor(train_inputs, dtype=torch.float32)
+test_inputs = torch.tensor(test_inputs, dtype=torch.float32)
+train_outputs = torch.tensor(train_outputs.values, dtype=torch.float32)
+test_outputs = torch.tensor(test_outputs.values, dtype=torch.float32)
+
+
+# 定义MMOE模型
+class MMOE(nn.Module):
+    def __init__(self, input_dim, output_dim, num_experts):
+        super(MMOE, self).__init__()
+
+        self.num_experts = num_experts
+
+        # 输入层
+        self.input_layer = nn.Linear(input_dim, 64)
+
+        # 专家层列表
+        self.experts = nn.ModuleList([nn.Sequential(
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, output_dim)
+        ) for _ in range(num_experts)])
+
+        # 门控机制层列表
+        self.gates = nn.ModuleList([nn.Sequential(
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1),
+            nn.Sigmoid()
+        ) for _ in range(num_experts)])
+
+    def forward(self, x):
+        # 输入层
+        x = torch.relu(self.input_layer(x))
+
+        expert_outputs = []
+        for i in range(self.num_experts):
+            # 专家层的输出
+            expert_output = self.experts[i](x)
+            expert_outputs.append(expert_output)
+
+        gate_outputs = []
+        for i in range(self.num_experts):
+            # 门控机制层的输出
+            gate_output = self.gates[i](x)
+            gate_outputs.append(gate_output)
+
+        # 将专家输出和门控机制输出相乘
+        expert_gate_outputs = [expert_outputs[i] * gate_outputs[i] for i in range(self.num_experts)]
+
+        # 将多个专家的输出相加
+        final_output = torch.stack(expert_gate_outputs, dim=0).sum(dim=0)
+
+        return final_output
+
+# 网格搜索的参数
+param_grid = {
+    'lr': [0.01, 0.001, 0.0001],
+    'max_epochs': [50, 100, 300],
+    # 可以添加更多参数
+}
+
+model = NeuralNetRegressor(
+    module=MMOE,
+    module__input_dim=3,
+    module__output_dim=7,
+    module__num_experts=3,
+    criterion=nn.MSELoss,
+    optimizer=optim.Adam,
+    iterator_train__shuffle=True,
+    verbose=1
+)
+
+grid_search = GridSearchCV(model, param_grid, cv=5, scoring='neg_mean_squared_error')
+grid_search.fit(train_inputs.numpy(), train_outputs.numpy())
+
+print("最佳参数：", grid_search.best_params_)
+
+# 提取最佳参数
+best_params = grid_search.best_params_
+
+# 创建使用最佳参数的模型
+model = NeuralNetRegressor(
+    module=MMOE,
+    module__input_dim=3,
+    module__output_dim=7,
+    module__num_experts=3,
+    lr=best_params['lr'],
+    max_epochs=best_params['max_epochs'],
+    criterion=nn.MSELoss,
+    optimizer=optim.Adam,
+    iterator_train__shuffle=True,
+    verbose=1  # 设置为1以打印训练过程
+)
+
+# 训练模型
+model.fit(train_inputs.numpy(), train_outputs.numpy())
+
+predicted_outputs = model.predict(test_inputs)
+
+# 计算MSE
+mse = mean_squared_error(test_outputs, predicted_outputs)
+print(f"MSE (均方误差): {mse}")
+
+# 计算RMSE
+rmse = np.sqrt(mse)
+print(f"RMSE (均方根误差): {rmse}")
+
+# 计算MAE
+mae = mean_absolute_error(test_outputs, predicted_outputs)
+print(f"MAE (平均绝对误差): {mae}")
+
+# 计算 R^2
+r2 = r2_score(test_outputs, predicted_outputs)
+print(f"R^2 (决定系数): {r2}")
+
+# 示例新输入
+x_new = [[1, 0.0000023, 0.418799]]
+# 将新输入转换为 DataFrame
+new_data = pd.DataFrame(x_new, columns=['有无重复字母', '单词出现频率', '字母出现频率'])
+# 使用训练数据时使用的相同 scaler 对新数据进行标准化
+new_data_scaled = scaler.transform(new_data)
+# 转换为 PyTorch 张量
+new_data_tensor = torch.tensor(new_data_scaled, dtype=torch.float32)
+# 使用模型进行预测
+predictions = model.predict(new_data_tensor)
+print(predictions)
