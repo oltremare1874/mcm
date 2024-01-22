@@ -1,0 +1,294 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import StackingRegressor
+from sklearn.linear_model import Ridge, Lasso
+from sklearn.multioutput import MultiOutputRegressor
+import lightgbm as lgb
+from xgboost import XGBRegressor
+from lightgbm import LGBMRegressor
+
+df = pd.read_excel('C题文件/Cdata.xlsx', engine='openpyxl')
+
+# 划分自变量和目标变量
+X = df[['有无重复字母', '单词出现频率', '字母出现频率']].values
+y = df[['1 try', '2 tries', '3 tries', '4 tries', '5 tries', '6 tries', '7 or more tries (X)']].values
+
+# 创建规范化对象
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+# 分别对自变量和目标变量进行规范化
+X_scaled = scaler_X.fit_transform(X)
+y_scaled = scaler_y.fit_transform(y)
+
+# 将规范化后的数据拆分为训练集和测试集
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_scaled, train_size=0.7, test_size=0.3, random_state=42)
+
+from sklearn.model_selection import GridSearchCV
+
+# 定义每个回归器的参数网格
+param_grid_ridge = {'alpha': [0.1, 1, 10]}
+param_grid_lasso = {'alpha': [0.1, 1, 10]}
+param_grid_xgb = {'n_estimators': [100, 200, 300], 'learning_rate': [0.01, 0.1, 0.2]}
+
+# 使用GridSearchCV搜索最佳参数
+grid_search_ridge = GridSearchCV(Ridge(), param_grid=param_grid_ridge, cv=5)
+grid_search_lasso = GridSearchCV(Lasso(), param_grid=param_grid_lasso, cv=5)
+grid_search_xgb = GridSearchCV(XGBRegressor(), param_grid=param_grid_xgb, cv=5)
+
+# 执行Grid Search
+grid_search_ridge.fit(X_train, y_train)
+grid_search_lasso.fit(X_train, y_train)
+grid_search_xgb.fit(X_train, y_train)
+
+# 输出最佳参数
+print('Best parameters for Ridge:', grid_search_ridge.best_params_)
+print('Best parameters for Lasso:', grid_search_lasso.best_params_)
+print('Best parameters for XGB:', grid_search_xgb.best_params_)
+
+# 使用Grid Search找到的最佳参数创建单个模型
+best_params_ridge = grid_search_ridge.best_params_
+best_params_lasso = grid_search_lasso.best_params_
+best_params_xgb = grid_search_xgb.best_params_
+
+ridge_model = Ridge(**best_params_ridge)
+lasso_model = Lasso(**best_params_lasso)
+xgb_model = XGBRegressor(**best_params_xgb)
+lgbm_model = LGBMRegressor(n_estimators=100, learning_rate=0.1, max_depth=3, random_state=42, force_col_wise=True)
+multioutput_lgbm = MultiOutputRegressor(lgbm_model)
+
+# 训练单个模型
+ridge_model.fit(X_train, y_train)
+lasso_model.fit(X_train, y_train)
+xgb_model.fit(X_train, y_train)
+multioutput_lgbm.fit(X_train, y_train)
+
+# 预测测试集
+ridge_predictions = ridge_model.predict(X_test)
+lasso_predictions = lasso_model.predict(X_test)
+xgb_predictions = xgb_model.predict(X_test)
+lgbm_predictions = multioutput_lgbm.predict(X_test)
+
+# 计算误差指标
+mse_ridge = mean_squared_error(y_test, ridge_predictions, multioutput='uniform_average')
+mae_ridge = mean_absolute_error(y_test, ridge_predictions, multioutput='uniform_average')
+r2_ridge = r2_score(y_test, ridge_predictions, multioutput='variance_weighted')
+
+mse_lasso = mean_squared_error(y_test, lasso_predictions, multioutput='uniform_average')
+mae_lasso = mean_absolute_error(y_test, lasso_predictions, multioutput='uniform_average')
+r2_lasso = r2_score(y_test, lasso_predictions, multioutput='variance_weighted')
+
+mse_xgb = mean_squared_error(y_test, xgb_predictions, multioutput='uniform_average')
+mae_xgb = mean_absolute_error(y_test, xgb_predictions, multioutput='uniform_average')
+r2_xgb = r2_score(y_test, xgb_predictions, multioutput='variance_weighted')
+
+mse_lgbm = mean_squared_error(y_test, lgbm_predictions, multioutput='uniform_average')
+mae_lgbm = mean_absolute_error(y_test, lgbm_predictions, multioutput='uniform_average')
+r2_lgbm = r2_score(y_test, lgbm_predictions, multioutput='variance_weighted')
+
+
+# 使用Grid Search找到的最佳参数创建单个模型
+best_params_ridge = grid_search_ridge.best_params_
+best_params_lasso = grid_search_lasso.best_params_
+best_params_xgb = grid_search_xgb.best_params_
+
+ridge_model = Ridge(**best_params_ridge)
+lasso_model = Lasso(**best_params_lasso)
+xgb_model = XGBRegressor(**best_params_xgb)
+
+# 定义堆叠回归模型
+estimators = [
+    ('ridge', ridge_model),
+    ('lasso', lasso_model),
+    ('lgbm', lgb.LGBMRegressor(n_estimators=100, learning_rate=0.1, max_depth=3, random_state=42)),
+]
+stacked_regressor = StackingRegressor(
+    estimators=estimators,
+    final_estimator=xgb_model
+)
+
+# 使用MultiOutputRegressor来处理多维输出
+multioutput_regressor = MultiOutputRegressor(stacked_regressor)
+# 训练模型
+multioutput_regressor.fit(X_train, y_train)
+
+# 预测测试集
+test_predictions = multioutput_regressor.predict(X_test)
+
+# 计算误差指标
+mse = mean_squared_error(y_test, test_predictions, multioutput='uniform_average')
+mae = mean_absolute_error(y_test, test_predictions, multioutput='uniform_average')
+r2 = r2_score(y_test, test_predictions, multioutput='variance_weighted')
+
+# 输出各个模型的误差指标
+print('Ridge Model - MSE:', mse_ridge)
+print('Ridge Model - MAE:', mae_ridge)
+print('Ridge Model - Weighted R^2:', r2_ridge)
+
+print('Lasso Model - MSE:', mse_lasso)
+print('Lasso Model - MAE:', mae_lasso)
+print('Lasso Model - Weighted R^2:', r2_lasso)
+
+print('XGB Model - MSE:', mse_xgb)
+print('XGB Model - MAE:', mae_xgb)
+print('XGB Model - Weighted R^2:', r2_xgb)
+
+print('LGBM Model - MSE:', mse_lgbm)
+print('LGBM Model - MAE:', mae_lgbm)
+print('LGBM Model - Weighted R^2:', r2_lgbm)
+
+# 输出误差指标
+print('Stack Model - MSE:', mse)
+print('Stack Model - MAE:', mae)
+print('Stack Model - Weighted R^2:', r2)
+
+# 预测新输入
+x_new = [[1, 0.0000023, 0.418799]]
+x_new_scaled = scaler_X.transform(x_new)
+new_prediction_scaled = multioutput_regressor.predict(x_new_scaled)
+new_prediction = scaler_y.inverse_transform(new_prediction_scaled)
+
+print('Predicted value for new input:', new_prediction)
+
+
+# /////////////////////////////////////////////////////////////////////////////////////////////
+import pandas as pd
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import StackingRegressor
+from sklearn.linear_model import Ridge, Lasso
+from xgboost import XGBRegressor
+from lightgbm import LGBMRegressor
+
+# 加载数据
+df = pd.read_excel('new.xlsx', engine='openpyxl')
+
+# 划分自变量和目标变量（单输出）
+X = df[['有无重复字母', '单词出现频率', '字母出现频率']].values
+y = df['3 tries'].values  # 只选择 '1 try' 作为目标变量
+
+# 创建规范化对象
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+# 对自变量和目标变量进行规范化
+X_scaled = scaler_X.fit_transform(X)
+y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).flatten()  # 注意y的形状调整
+
+# 划分训练集和测试集
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_scaled, train_size=0.7, test_size=0.3, random_state=42)
+
+# 定义参数网格
+param_grid_ridge = {'alpha': [0.1, 1, 10]}
+param_grid_lasso = {'alpha': [0.1, 1, 10]}
+param_grid_xgb = {'n_estimators': [100, 200, 300], 'learning_rate': [0.01, 0.1, 0.2]}
+param_grid_lgbm = {'n_estimators': [100, 200, 300], 'learning_rate': [0.01, 0.1, 0.2], 'max_depth': [3, 5, 7]}
+
+# 网格搜索
+grid_search_ridge = GridSearchCV(Ridge(), param_grid=param_grid_ridge, cv=5)
+grid_search_lasso = GridSearchCV(Lasso(), param_grid=param_grid_lasso, cv=5)
+grid_search_xgb = GridSearchCV(XGBRegressor(), param_grid=param_grid_xgb, cv=5)
+grid_search_lgbm = GridSearchCV(LGBMRegressor(random_state=42), param_grid=param_grid_lgbm, cv=5)
+
+grid_search_ridge.fit(X_train, y_train)
+grid_search_lasso.fit(X_train, y_train)
+grid_search_xgb.fit(X_train, y_train)
+grid_search_lgbm.fit(X_train, y_train)
+
+# 获取最佳参数
+best_params_ridge = grid_search_ridge.best_params_
+best_params_lasso = grid_search_lasso.best_params_
+best_params_xgb = grid_search_xgb.best_params_
+best_params_lgbm = grid_search_lgbm.best_params_
+
+# 创建模型
+ridge_model = Ridge(**best_params_ridge)
+lasso_model = Lasso(**best_params_lasso)
+xgb_model = XGBRegressor(**best_params_xgb)
+lgbm_model = LGBMRegressor(**best_params_lgbm)
+
+# 训练模型
+ridge_model.fit(X_train, y_train)
+lasso_model.fit(X_train, y_train)
+xgb_model.fit(X_train, y_train)
+lgbm_model.fit(X_train, y_train)
+
+# 预测
+ridge_predictions = ridge_model.predict(X_test)
+lasso_predictions = lasso_model.predict(X_test)
+xgb_predictions = xgb_model.predict(X_test)
+lgbm_predictions = lgbm_model.predict(X_test)
+
+# 评估模型
+mse_ridge = mean_squared_error(y_test, ridge_predictions)
+mae_ridge = mean_absolute_error(y_test, ridge_predictions)
+r2_ridge = r2_score(y_test, ridge_predictions)
+
+mse_lasso = mean_squared_error(y_test, lasso_predictions)
+mae_lasso = mean_absolute_error(y_test, lasso_predictions)
+r2_lasso = r2_score(y_test, lasso_predictions)
+
+mse_xgb = mean_squared_error(y_test, xgb_predictions)
+mae_xgb = mean_absolute_error(y_test, xgb_predictions)
+r2_xgb = r2_score(y_test, xgb_predictions)
+
+mse_lgbm = mean_squared_error(y_test, lgbm_predictions)
+mae_lgbm = mean_absolute_error(y_test, lgbm_predictions)
+r2_lgbm = r2_score(y_test, lgbm_predictions)
+
+ridge_model = Ridge(**best_params_ridge)
+lasso_model = Lasso(**best_params_lasso)
+xgb_model = XGBRegressor(**best_params_xgb)
+lgbm_model = LGBMRegressor(**best_params_lgbm)
+
+# 定义堆叠回归模型
+stacked_regressor = StackingRegressor(
+    estimators=[
+        ('ridge', ridge_model),
+        ('lasso', lasso_model),
+        ('lgbm', lgbm_model)
+    ],
+    final_estimator=xgb_model
+)
+
+# 训练堆叠回归模型
+stacked_regressor.fit(X_train, y_train)
+# 预测
+stacked_predictions = stacked_regressor.predict(X_test)
+
+# 评估
+mse_stacked = mean_squared_error(y_test, stacked_predictions)
+mae_stacked = mean_absolute_error(y_test, stacked_predictions)
+r2_stacked = r2_score(y_test, stacked_predictions)
+
+# 输出结果
+print('Ridge Model - MSE:', mse_ridge)
+print('Ridge Model - MAE:', mae_ridge)
+print('Ridge Model - R^2:', r2_ridge)
+
+print('Lasso Model - MSE:', mse_lasso)
+print('Lasso Model - MAE:', mae_lasso)
+print('Lasso Model - R^2:', r2_lasso)
+
+print('XGB Model - MSE:', mse_xgb)
+print('XGB Model - MAE:', mae_xgb)
+print('XGB Model - R^2:', r2_xgb)
+
+print('LGBM Model - MSE:', mse_lgbm)
+print('LGBM Model - MAE:', mae_lgbm)
+print('LGBM Model - R^2:', r2_lgbm)
+
+print('Stacked Model - MSE:', mse_stacked)
+print('Stacked Model - MAE:', mae_stacked)
+print('Stacked Model - R^2:', r2_stacked)
+
+# 预测新输入
+x_new = [[1, 0.0000023, 0.418799]]
+x_new_scaled = scaler_X.transform(x_new)
+new_prediction_stacked_scaled = stacked_regressor.predict(x_new_scaled)
+new_prediction_stacked = scaler_y.inverse_transform(new_prediction_stacked_scaled.reshape(-1, 1))
+
+print('Predicted value for new input:', new_prediction_stacked)
