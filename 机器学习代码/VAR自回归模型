@@ -1,0 +1,50 @@
+from statsmodels.tsa.api import VAR
+import pandas as pd
+import statsmodels.api as sm
+
+# 加载数据
+df = pd.read_excel('var.xlsx')
+
+# 确定新的日期范围
+num_rows = len(df)
+start_date = '2024-01-01'  # 可以选择任何合适的起始日期
+all_dates = pd.date_range(start=start_date, periods=num_rows, freq='D')
+
+# 替换原始的日期列
+df['review_date'] = all_dates
+
+# 只选择你感兴趣的列
+data = df[['review_date', 'star_rating', 'compound']].set_index('review_date')
+print(data)
+
+time_series_1 = data['star_rating']
+time_series_2 = data['compound']
+
+# ADF检验
+result = sm.tsa.adfuller(time_series_1, autolag='AIC')
+# 输出结果
+print('ADF Statistic: %f' % result[0])
+print('p-value: %f' % result[1])
+print('Critical Values:')
+for key, value in result[4].items():
+    print('\t%s: %.3f' % (key, value))
+# ADF检验
+result = sm.tsa.adfuller(time_series_2, autolag='AIC')
+# 输出结果
+print('ADF Statistic: %f' % result[0])
+print('p-value: %f' % result[1])
+print('Critical Values:')
+for key, value in result[4].items():
+    print('\t%s: %.3f' % (key, value))
+
+
+# 创建VAR模型
+model = VAR(data)
+# 选择最佳滞后长度
+lag_order = model.select_order(15)
+print(lag_order.summary())
+
+# 拟合模型
+results = model.fit(maxlags=4)
+# 查看结果
+print(results.summary())
