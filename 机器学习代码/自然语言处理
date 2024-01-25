@@ -1,0 +1,169 @@
+import pandas as pd
+import re
+
+# 读取Excel文件
+df = pd.read_excel('microwave.xlsx') # 替换为你的文件名
+
+# 函数，用于检测字符串中是否包含表情符号
+def contains_emoji(s):
+    # 表情符号的正则表达式
+    emoji_pattern = re.compile("["
+                           u"\U0001F600-\U0001F64F"  # emoticons
+                           u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+                           u"\U0001F680-\U0001F6FF"  # transport & map symbols
+                           u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+                           u"\U00002702-\U000027B0"
+                           u"\U000024C2-\U0001F251"
+                           "]+", flags=re.UNICODE)
+    return re.search(emoji_pattern, s)
+
+# 遍历数据集的每一行
+rows_with_emojis = []
+for index, row in df.iterrows():
+    if any(contains_emoji(str(x)) for x in row):
+        rows_with_emojis.append(index)
+
+# 打印包含表情符号的行号
+print("包含表情符号的行号：", rows_with_emojis)
+# //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+import pandas as pd
+from spellchecker import SpellChecker
+
+# 创建拼写检查器实例
+spell = SpellChecker()
+
+# 定义拼写矫正函数
+def correct_spelling(text):
+    corrected_text = []
+    # 分割文本为单词
+    words = text.split()
+    for word in words:
+        # 矫正单词拼写
+        corrected_word = spell.correction(word)
+        # 如果没有找到矫正，保留原始单词
+        corrected_word = corrected_word if corrected_word is not None else word
+        corrected_text.append(corrected_word)
+    # 合并矫正后的单词
+    return ' '.join(corrected_text)
+
+# 读取Excel文件
+df = pd.read_excel('microwave.xlsx')
+
+# 应用拼写矫正
+column = 'review_body'  # 替换为你要检查的列名
+df[column] = df[column].astype(str).apply(correct_spelling)
+
+# 转换为小写
+df[column] = df[column].str.lower()
+
+# 保存到新的Excel文件
+df.to_excel('corrected_data.xlsx', index=False)\
+
+# ///////////////////////////////////////////////////////////////////////////////////////////////////////////
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+# 读取Excel文件
+df = pd.read_excel('microwave.xlsx')
+
+# 使用TF-IDF转换文本
+vectorizer = TfidfVectorizer()
+tfidf_matrix = vectorizer.fit_transform(df['review_body'])
+
+# 计算余弦相似度
+cosine_sim = cosine_similarity(tfidf_matrix)
+
+# 寻找冗余评论
+threshold = 0.002  # 设置阈值
+redundant_comments = []
+for i in range(cosine_sim.shape[0]):
+    avg_similarity = np.mean([cosine_sim[i][j] for j in range(cosine_sim.shape[0]) if i != j])
+    if avg_similarity < threshold:
+        redundant_comments.append(i)
+
+# 打印可能冗余的评论行号
+print("可能冗余的评论行号：")
+print(redundant_comments)
+
+# /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+from nltk import pos_tag
+import pandas as pd
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+import re
+# 加载数据
+df = pd.read_excel('microwave.xlsx')
+
+# 简单的清理和预处理
+def preprocess(text):
+    text = re.sub(r'<.*?>', '', text)  # 去除HTML标签
+    text = re.sub(r'[^a-zA-Z\s]', '', text, re.I|re.A)  # 去除标点和数字
+    text = text.lower()  # 转换为小写
+    tokens = nltk.word_tokenize(text)  # 分词
+    tagged = pos_tag(tokens)  # 词性标注
+    nouns_adjectives = [word for word, pos in tagged if pos in ['NN', 'NNS', 'NNP', 'NNPS', 'JJ', 'JJR', 'JJS']]  # 选择名词和形容词
+    lemmatizer = WordNetLemmatizer()
+    nouns_adjectives = [lemmatizer.lemmatize(word) for word in nouns_adjectives]  # 词形还原
+    return ' '.join(nouns_adjectives)
+
+df['cleaned_review'] = df['review_body'].apply(preprocess)
+
+# 创建文档-词矩阵
+vectorizer = CountVectorizer()
+data_vectorized = vectorizer.fit_transform(df['cleaned_review'])
+
+# 应用LDA
+lda_model = LatentDirichletAllocation(n_components=5, max_iter=30, learning_method='online')
+lda_model.fit(data_vectorized)
+
+# 显示主题
+def display_topics(model, feature_names, no_top_words):
+    for topic_idx, topic in enumerate(model.components_):
+        print("Topic %d:" % (topic_idx))
+        print(" ".join([feature_names[i] for i in topic.argsort()[:-no_top_words - 1:-1]]))
+
+no_top_words = 10
+display_topics(lda_model, vectorizer.get_feature_names_out(), no_top_words)
+
+# 获取每条评论所属的主题
+topic_results = lda_model.transform(data_vectorized)
+df['topic'] = topic_results.argmax(axis=1)
+
+
+# 找到每个主题中compound值最高的评论
+top_comments = []
+for i in range(5):
+    topic_df = df[df['topic'] == i]
+    top_comment = topic_df.loc[topic_df['compound'].idxmax()]
+    top_comments.append(top_comment)
+
+# 计算文本相似度
+def calculate_similarity(text1, text2):
+    vec1 = vectorizer.transform([text1]).toarray()
+    vec2 = vectorizer.transform([text2]).toarray()
+    return cosine_similarity(vec1, vec2)[0][0]
+
+
+# 为每条评论计算与每个主题代表评论的相似度
+for index, row in df.iterrows():
+    # 在每次迭代内初始化相似度列表
+    for i, top_comment in enumerate(top_comments):
+        sim = calculate_similarity(row['cleaned_review'], top_comment['cleaned_review'])
+        # 直接将每个相似度值存入DataFrame对应列
+        df.at[index, f'similarity_with_topic_{i}'] = sim
+
+
+# 输出结果
+print("Top Comments per Topic:")
+for i, comment in enumerate(top_comments):
+    print(f"Topic {i}: Row {comment.name}")
+
+df.to_excel('updated_reviews.xlsx')  # 保存更新后的DataFrame到Excel
+
