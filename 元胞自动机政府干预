@@ -1,0 +1,58 @@
+import numpy as np
+import random
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+
+
+def government_intervention(map, width, height):
+    for y in range(height):
+        for x in range(width):
+            if map[y, x] > 0 and random.random() < 0.4:  # 50%概率摧毁巢穴
+                map[y, x] = 0
+
+
+def simulate_year(current_map, width, height):
+    new_map = np.zeros_like(current_map)  # 开始每年都用一个新地图
+    for y in range(height):
+        for x in range(width):
+            if current_map[y, x] > 0:  # 找到一个巢穴
+                for dy in range(-2, 3):  # 在5x5区域内尝试产生新巢穴
+                    for dx in range(-2, 3):
+                        ny, nx = y + dy, x + dx
+                        if 0 <= ny < height and 0 <= nx < width and current_map[ny, nx] != -1:
+                            if random.random() < 0.2:  # 20%概率在每个格子产生新巢穴
+                                new_map[ny, nx] = min(new_map[ny, nx] + 1, 5)
+    return new_map
+
+
+def run_simulation(n_years, width, height, nest_locations, no_nest_zones):
+    map = np.zeros((height, width), dtype=int)
+    for loc in nest_locations:
+        map[loc] = 1
+
+    for loc in no_nest_zones:
+        map[loc] = -1
+
+    for year in range(1, n_years + 1):
+        government_intervention(map, width, height)  # 每年进行一次政府干预
+        map = simulate_year(map, width, height)
+
+    return np.sum(map > 0)
+
+
+# 参数设置
+n_simulations = 1000  # 总模拟次数
+n_years = 10  # 模拟的年数
+width, height = 37, 23  # 网格大小
+nest_locations = [(1, 8), (2, 9)]  # 初始巢穴位置
+no_nest_zones = [(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7),(1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7),(3, 0), (3, 1), (3, 2), (3, 3), (3, 4), (3, 5), (3, 6), (3, 7), (3, 8), (4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5), (4, 6), (4, 7), (4, 8), (5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5), (5, 6), (5, 7), (5, 8),(6, 4), (6, 5), (6, 6), (6, 7), (6, 8),(7, 7), (7, 8), (7, 9), (8, 7), (8, 8), (8, 9), (9, 7), (9, 8), (9, 9), (10, 7), (10, 8), (10, 9),(11, 8),(11,9),(18, 0), (18, 1), (18, 2), (18, 3), (18, 4), (18, 5), (18, 6), (19, 0), (19, 1), (19, 2), (19, 3), (19, 4), (19, 5), (19, 6), (20, 0), (20, 1), (20, 2), (20, 3), (20, 4), (20, 5), (20, 6), (21, 0), (21, 1), (21, 2), (21, 3), (21, 4), (21, 5), (21, 6), (22, 0), (22, 1), (22, 2), (22, 3), (22, 4), (22, 5), (22, 6),(20, 26), (20, 27), (20, 28), (20, 29), (20, 30), (20, 31), (20, 32), (20, 33), (20, 34), (20, 35), (20, 36),(21, 22), (21, 23), (21, 24), (21, 25), (21, 26), (21, 27), (21, 28), (21, 29), (21, 30), (21, 31), (21, 32), (21, 33), (21, 34), (21, 35), (21, 36),(22, 11), (22, 12), (22, 13), (22, 14), (22, 15), (22, 16), (22, 17), (22, 18), (22, 19), (22, 20), (22, 21), (22, 22), (22, 23), (22, 24), (22, 25), (22, 26), (22, 27), (22, 28), (22, 29), (22, 30), (22, 31), (22, 32), (22, 33), (22, 34), (22, 35), (22, 36)]  # 示例：指定不可筑巢的区域角落
+
+# 记录第十年巢穴数量大于10的次数
+count_greater_than_10 = 0
+
+for _ in range(n_simulations):
+    nests_count = run_simulation(n_years, width, height, nest_locations, no_nest_zones)
+    if nests_count > 10:
+        count_greater_than_10 += 1
+
+print(f"在100次模拟中，第十年巢穴数量大于10的次数为：{count_greater_than_10}")
