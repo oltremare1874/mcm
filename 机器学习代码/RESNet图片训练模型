@@ -1,0 +1,338 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms, models
+import numpy as np
+import cv2
+from PIL import Image
+import os
+from sklearn.model_selection import train_test_split
+from torchvision.models import resnet34, ResNet34_Weights
+from torchvision.transforms import functional as F
+import xml.etree.ElementTree as ET
+import random
+import pandas as pd
+from sklearn.metrics import recall_score, accuracy_score
+from PIL import Image
+
+def parse_xml(xml_file):
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+    boxes = []
+
+    for member in root.findall('object'):
+        xmin = int(member.find('bndbox/xmin').text)
+        ymin = int(member.find('bndbox/ymin').text)
+        xmax = int(member.find('bndbox/xmax').text)
+        ymax = int(member.find('bndbox/ymax').text)
+        boxes.append((xmin, ymin, xmax, ymax))
+
+    return boxes
+
+def blur_background(image, boxes, blur_intensity=21):
+    mask = np.zeros(image.shape[:2], np.uint8)
+    for box in boxes:
+        mask[box[1]:box[3], box[0]:box[2]] = 255
+    background = cv2.bitwise_not(mask)
+    blurred = cv2.GaussianBlur(image, (blur_intensity, blur_intensity), 0)
+    masked_blurred = cv2.bitwise_and(blurred, blurred, mask=background)
+    masked_foreground = cv2.bitwise_and(image, image, mask=mask)
+    final_image = cv2.add(masked_foreground, masked_blurred)
+    return final_image
+
+
+
+def adaptive_resize(image, target_size=(640, 640)):
+    """
+    Resize image maintaining aspect ratio and add black padding to ensure
+    the output image has the specified target size.
+    """
+    # Calculate the size preserving aspect ratio
+    aspect_ratio = image.width / image.height
+    if aspect_ratio > 1:
+        new_width = target_size[0]
+        new_height = int(new_width / aspect_ratio)
+    else:
+        new_height = target_size[1]
+        new_width = int(new_height * aspect_ratio)
+
+    # Resize the image
+    image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+    # Create a new image with a black background
+    new_image = Image.new("RGB", target_size, (0, 0, 0))
+    # Paste the resized image onto the center of the new image
+    paste_location = ((target_size[0] - new_width) // 2, (target_size[1] - new_height) // 2)
+    new_image.paste(image, paste_location)
+
+    return new_image
+
+
+class BeeDataset(Dataset):
+    def __init__(self, root_dir, transform=None, mosaic_transform=None):
+        """
+        Initialize the dataset.
+        :param root_dir: Dataset directory path.
+        :param transform: Normal transforms to apply to each image.
+        :param mosaic_transform: Boolean, whether to apply mosaic augmentation.
+        :param preprocess_transform: Transform for preprocessing images before mosaic.
+        """
+        self.root_dir = root_dir
+        self.transform = transform
+        self.mosaic_transform = mosaic_transform
+        self.preprocess_transform = None
+        self.classes = ['bee', 'notbee']
+        self.images, self.labels = self._load_images_labels()
+
+    def _load_images_labels(self):
+        images = []
+        labels = []
+        for label, cls in enumerate(self.classes):
+            cls_folder = os.path.join(self.root_dir, cls)
+            for img_name in os.listdir(cls_folder):
+                img_path = os.path.join(cls_folder, img_name)
+                if img_path.endswith('.jpg'):
+                    images.append(img_path)
+                    labels.append(label)
+        return images, labels
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        def mosaic(images, dimension=(640, 640)):
+            """
+            Apply Mosaic augmentation.
+            images: List of PIL images.
+            dimension: Target dimension of each small image in the mosaic.
+            """
+            # Resize images
+            resized_images = [img.resize(dimension) for img in images]
+
+            # Create Mosaic
+            new_img = Image.new('RGB', (dimension[0] * 2, dimension[1] * 2))
+            new_img.paste(resized_images[0], (0, 0))
+            new_img.paste(resized_images[1], (dimension[0], 0))
+            new_img.paste(resized_images[2], (0, dimension[1]))
+            new_img.paste(resized_images[3], (dimension[0], dimension[1]))
+            return new_img
+
+        def _select_random_images(count, current_idx):
+            """
+            随机选择指定数量的图像路径，用于创建马赛克。
+            :param count: 需要选择的图像数量。
+            :param current_idx: 当前正在处理的图像索引，以避免重复选择。
+            :return: 一个包含随机选定图像路径的列表。
+            """
+            available_indices = list(range(len(self.images)))  # 创建一个所有可能索引的列表
+            available_indices.remove(current_idx)  # 移除当前正在处理的图像索引
+            selected_indices = random.sample(available_indices, count)  # 随机选择指定数量的索引
+            return [self.images[i] for i in selected_indices]  # 返回选定索引对应的图像路径列表
+
+        img_path = self.images[idx]
+        xml_path = img_path.replace('.jpg', '.xml')  # 假设标注文件和图片文件名匹配
+        image = cv2.imread(img_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # 转换颜色空间
+
+        if os.path.exists(xml_path):  # 如果存在XML文件，则解析并应用背景虚化
+            boxes = parse_xml(xml_path)
+            image = blur_background(image, boxes)
+
+        image = Image.fromarray(image)  # 将OpenCV图像转换为PIL图像
+
+        label = self.labels[idx]
+        # 如果adaptive_resize接受PIL.Image作为输入，则在此应用
+        # 确保adaptive_resize能够正确处理PIL图像
+        image = adaptive_resize(image)  # 此处的实现需要更新以支持PIL.Image
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, label
+
+def initialize_model(num_classes):
+    # 加载具有预训练权重的ResNet34模型
+    model = resnet34(weights=ResNet34_Weights.DEFAULT)
+    num_ftrs = model.fc.in_features
+    model.fc = nn.Linear(num_ftrs, num_classes)
+    return model
+
+
+def train_model(train_loader, num_classes=2):
+    def test_model2(model, test_dir, ground_truth):
+        model.eval()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        test_transform = transforms.Compose([
+            transforms.Resize((640, 640)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+
+        classes = ['bee', 'notbee']
+        y_true = []
+        y_pred = []
+
+        for img_name in os.listdir(test_dir):
+            if img_name in ground_truth:
+                img_path = os.path.join(test_dir, img_name)
+                image = Image.open(img_path).convert('RGB')
+                image = test_transform(image).unsqueeze(0).to(device)
+
+                true_label = ground_truth[img_name]
+                y_true.append(classes.index(true_label))
+
+                with torch.no_grad():
+                    outputs = model(image)
+                    _, predicted = torch.max(outputs, 1)
+                    y_pred.append(predicted.item())
+
+        recall = recall_score(y_true, y_pred, average='macro', zero_division=1)
+        accuracy = accuracy_score(y_true, y_pred)
+        print(f"y_true: {y_true}, y_pred: {y_pred}")
+        return recall, accuracy
+
+    def label_from_filename(file_name):
+        if "bee" in file_name:
+            return "bee"
+        elif "not" in file_name:
+            return "notbee"
+        else:
+            return None  # 或者可以返回一个默认标签，或者抛出异常
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = initialize_model(num_classes).to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    epochs = 450
+    for epoch in range(epochs):
+        model.train()
+        running_loss = 0.0
+        for inputs, labels in train_loader:
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+
+            optimizer.zero_grad()
+
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+
+        print(f'Epoch {epoch + 1}/{epochs}, Loss: {running_loss / len(train_loader)}')
+
+        # 在每次循环结束后测试集上进行测试
+        # 使用label_from_filename函数来创建一个包含真实标签的字典
+        test_dir = "test"
+        image_files = os.listdir(test_dir)
+        ground_truth = {file: label_from_filename(file) for file in image_files}
+        recall, accuracy = test_model2(model, test_dir, ground_truth)
+        print(f"Recall: {recall}, Accuracy: {accuracy}")
+
+    return model
+
+train_transforms = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+train_dataset = BeeDataset(root_dir='train', transform=train_transforms, mosaic_transform=None)
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+
+model = train_model(train_loader)
+
+# 假设 model 是您训练好的模型
+torch.save(model, 'model_complete2.pth')
+model = torch.load('model_complete2.pth')
+
+
+def test_model(model, test_dir):
+    model.eval()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    test_transform = transforms.Compose([
+        transforms.Resize((640, 640)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+
+    classes = ['bee', 'notbee']
+    results = []
+
+    for img_name in os.listdir(test_dir):
+        img_path = os.path.join(test_dir, img_name)
+        image = Image.open(img_path).convert('RGB')
+        image = test_transform(image).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            outputs = model(image)
+            _, predicted = torch.max(outputs, 1)
+            predicted_class = classes[predicted.item()]
+            results.append({'FileName': img_name, 'PredictedClass': predicted_class})
+
+    return results
+
+# 测试模型并获取结果
+test_results = test_model(model, '2021不确定图片')
+
+# 创建DataFrame并保存为Excel文件
+df = pd.DataFrame(test_results)
+df.to_excel('pnew.xlsx', index=False)
+
+def label_from_filename(file_name):
+    if "bee" in file_name:
+        return "bee"
+    elif "not" in file_name:
+        return "notbee"
+    else:
+        return None  # 或者可以返回一个默认标签，或者抛出异常
+
+# 假设您的图片都存储在某个目录中
+image_dir = "test"
+image_files = os.listdir(image_dir)
+labels = [label_from_filename(file) for file in image_files]
+
+# 打印文件名及其对应标签，以验证标签是否正确
+for file, label in zip(image_files, labels):
+    print(f"File: {file}, Label: {label}")
+
+def test_model2(model, test_dir, ground_truth):
+    model.eval()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    test_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+
+    classes = ['bee', 'notbee']
+    y_true = []
+    y_pred = []
+
+    for img_name in os.listdir(test_dir):
+        if img_name in ground_truth:
+            img_path = os.path.join(test_dir, img_name)
+            image = Image.open(img_path).convert('RGB')
+            image = test_transform(image).unsqueeze(0).to(device)
+
+            true_label = ground_truth[img_name]
+            y_true.append(classes.index(true_label))
+
+            with torch.no_grad():
+                outputs = model(image)
+                _, predicted = torch.max(outputs, 1)
+                y_pred.append(predicted.item())
+
+    recall = recall_score(y_true, y_pred, average='macro', zero_division=1)
+    accuracy = accuracy_score(y_true, y_pred)
+    print(f"y_true: {y_true}, y_pred: {y_pred}")
+    return recall, accuracy
+
+# 使用label_from_filename函数来创建一个包含真实标签的字典
+ground_truth = {file: label_from_filename(file) for file in image_files}
+
+# 测试模型并计算召回率和准确率
+recall, accuracy = test_model2(model, image_dir, ground_truth)
+print(f"Recall: {recall}, Accuracy: {accuracy}")
