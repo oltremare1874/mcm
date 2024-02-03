@@ -1,0 +1,60 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 假设 df 是您已经加载并包含 'set_no' 列的 DataFrame
+df = pd.read_excel('1701得分.xlsx')
+# 初始化变量
+performance_score = 0
+consecutive_scores = 0
+scores_list = []
+set_list = []  # 存储每一分对应的盘数
+
+our_player_no = 1
+
+# 遍历每一行数据来计算表现得分
+for index, row in df.iterrows():
+    if row['point_victor'] == our_player_no:
+        # 基础得分
+        score_increment = 1 if row['point_victor'] == row['server'] else 2.1
+        # 连续得分加成
+        if index > 0 and row['point_victor'] == df.loc[index - 1, 'point_victor']:
+            our_consecutive_scores += 1 if row['point_victor'] == row['server'] else 2.1
+            score_increment += 0.5 * our_consecutive_scores
+        else:
+            our_consecutive_scores = 0
+        opponent_consecutive_scores = 0  # 重置对手的连续得分计数器
+    else:
+        # 对手得分时减分
+        score_increment = -1 if row['point_victor'] == row['server'] else -2.1
+        # 对手连续得分加成
+        if index > 0 and row['point_victor'] != our_player_no and row['point_victor'] == df.loc[index - 1, 'point_victor']:
+            opponent_consecutive_scores += 1 if row['point_victor'] == row['server'] else 2.1
+            score_increment -= 0.5 * opponent_consecutive_scores
+        else:
+            opponent_consecutive_scores = 0
+        our_consecutive_scores = 0  # 重置我们的连续得分计数器
+
+    performance_score += score_increment
+    scores_list.append(performance_score)
+    set_list.append(row['set_no'])
+
+plt.figure(figsize=(12, 7))
+
+# 不同盘数对应的颜色
+colors = ['green', 'orange', 'green', 'orange', 'green']
+color_map = {set_no: color for set_no, color in zip(sorted(df['set_no'].unique()), colors)}
+
+# 绘制每一盘的得分变化曲线
+for set_no in sorted(df['set_no'].unique()):
+    set_indices = [i for i, x in enumerate(set_list) if x == set_no]
+    plt.plot([df['point_no'].iloc[i] for i in set_indices], [scores_list[i] for i in set_indices],
+             marker='o', linestyle='-', linewidth=2, markersize=4, label=f'Set {set_no}', color=color_map[set_no])
+
+plt.title('Player Performance Score Across Sets', fontsize=16)
+plt.xlabel('Point Number', fontsize=14)
+plt.ylabel('Performance Score', fontsize=14)
+plt.legend(fontsize=12)
+plt.grid(True, linestyle='--', alpha=0.5)
+plt.xticks(fontsize=12)
+plt.yticks(fontsize=12)
+plt.show()
